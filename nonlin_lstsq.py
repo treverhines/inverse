@@ -274,7 +274,7 @@ def nonlin_lstsq(system,
                                 lm_matrix,
                                 data_indices)
 
-  final = np.zeros(data_no+
+  final = np.zeros(len(data_indices) +
                    np.shape(reg_matrix)[0] +
                    np.shape(lm_matrix)[0])
 
