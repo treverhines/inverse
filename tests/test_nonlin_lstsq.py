@@ -59,19 +59,51 @@ class Test(unittest.TestCase):
     model_pred = inverse.nonlin_lstsq(f_nonlin,data,2,system_args=(x,))
     self.assertTrue(np.linalg.norm(model_pred - model_true) < tol)
 
-  def test_nnls_solver_1(self):
+  def test_solver_lstsq(self):
     x = np.linspace(0,10,4)
     model_true = np.array([2.5,5.0])
     data = f_nonlin(model_true,x)
-    model_pred = inverse.nonlin_lstsq(f_nonlin,data,2,system_args=(x,),solver=inverse.nnls)
+    model_pred = inverse.nonlin_lstsq(f_nonlin,data,2,system_args=(x,),solver=inverse.lstsq)
     self.assertTrue(np.linalg.norm(model_pred - model_true) < tol)
 
-  def test_nnls_solver_2(self):
+  def test_solver_nnls(self):
     x = np.linspace(0,10,4)
+    # the bounds should not impede the results here
+    model_true = np.array([0.1,5.0])
+    data = f_nonlin(model_true,x)
+    model_pred = inverse.nonlin_lstsq(f_nonlin,data,2,system_args=(x,),solver=inverse.nnls)
+    self.assertTrue(np.linalg.norm(model_pred - model_true) < tol)
+    self.assertTrue(all(model_pred >= 0.0))
+
+    # the bounds should influence the results here
     model_true = np.array([-2.5,5.0])
     data = f_nonlin(model_true,x)
     model_pred = inverse.nonlin_lstsq(f_nonlin,data,2,system_args=(x,),solver=inverse.nnls)
     self.assertTrue(all(model_pred >= 0.0))
+
+  def test_solver_bounded_lstsq(self):
+    x = np.linspace(0,10,4)
+    model_true = np.array([-2.5,5.0])
+    data = f_nonlin(model_true,x)
+    # the bounds should not impede the results here
+    lower_bounds = np.array([-5.0,-5.0])
+    upper_bounds = np.array([6.0,6.0])
+    model_pred = inverse.nonlin_lstsq(f_nonlin,data,2,system_args=(x,),
+                                      solver=inverse.bounded_lstsq,
+                                      solver_args=(lower_bounds,upper_bounds))
+    self.assertTrue(np.linalg.norm(model_pred - model_true) < tol)
+    self.assertTrue(all(model_pred <= upper_bounds) & 
+                    all(model_pred >= lower_bounds))
+
+    # the bounds should influence the results here
+    lower_bounds = np.array([-2.4,-2.4])
+    upper_bounds = np.array([4.9,4.9])
+    model_pred = inverse.nonlin_lstsq(f_nonlin,data,2,system_args=(x,),
+                                      solver=inverse.bounded_lstsq,
+                                      solver_args=(lower_bounds,upper_bounds))
+
+    self.assertTrue(all(model_pred <= upper_bounds) & 
+                    all(model_pred >= lower_bounds))
 
 unittest.main()
 
