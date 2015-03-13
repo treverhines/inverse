@@ -90,7 +90,7 @@ def jacobian_fd(m_o,
   return Jac
 
 ##------------------------------------------------------------------------------
-def _objective(system,
+def _residual(system,
                data,
                sigma,
                system_args,
@@ -106,7 +106,7 @@ def _objective(system,
   '''  
   data = np.asarray(data)
   sigma = np.asarray(sigma)
-  def objective_function(model):
+  def residual_function(model):
     '''
     evaluates the function to be minimized for the given model
     '''
@@ -117,7 +117,7 @@ def _objective(system,
     lm = np.zeros(np.shape(lm_matrix)[0])
     return np.hstack((res,reg,lm))
 
-  def objective_jacobian(model):
+  def residual_jacobian(model):
     '''
     evaluates the jacobian of the objective function at the given model
     '''
@@ -126,7 +126,7 @@ def _objective(system,
     jac = jac[data_indices,:]
     return np.vstack((jac,reg_matrix,lm_matrix))
 
-  return objective_function,objective_jacobian
+  return residual_function,residual_jacobian
 
 ##------------------------------------------------------------------------------
 def lstsq(G,d,*args,**kwargs):
@@ -176,7 +176,8 @@ def nonlin_lstsq(system,
     system: function where the first argument is a vector of model parameters 
             and the remaining arguments are system args and system kwargs
     data: vector of data values
-    m_o: vector of model parameter initial guesses
+    m_o: vector of model parameter initial guesses.  If an integer is provided
+         then the initial guess will be a vector of ones with that length  
 
   **kwargs 
   -------
@@ -214,6 +215,9 @@ def nonlin_lstsq(system,
   -------
     m_new: best fit model parameters
   '''
+  if type(m_o) == int:
+    m_o = np.ones(m_o)
+
   param_no = len(m_o)
   data_no = len(data)
 
@@ -262,7 +266,7 @@ def nonlin_lstsq(system,
   else:
     lm_matrix = np.zeros((0,param_no),dtype=dtype)
  
-  obj_func,obj_jac = _objective(system,
+  res_func,res_jac = _residual(system,
                                 data,
                                 sigma,
                                 system_args,
@@ -282,12 +286,12 @@ def nonlin_lstsq(system,
   count = 0
   status = None
   while not ((status == 0) | (status == 3) | (count == maxitr)):
-    J = obj_jac(m_o)
+    J = res_jac(m_o)
     J = np.asarray(J,dtype=dtype)
-    d = obj_func(m_o)
+    d = res_func(m_o)
     d = np.asarray(d,dtype=dtype)
     m_new = solver(J,-d+J.dot(m_o))
-    d_new = obj_func(m_new)
+    d_new = res_func(m_new)
     status,message = conv(d_new)
     logger.debug(message)
     if (status == 1) and LM_damping:
@@ -299,12 +303,12 @@ def nonlin_lstsq(system,
       logger.debug('increasing LM parameter to %s' % LM_param)
       lm_matrix *= LM_factor
       LM_param *= LM_factor
-      J = obj_jac(m_o)
+      J = res_jac(m_o)
       J = np.asarray(J,dtype=dtype)
-      d = obj_func(m_o)
+      d = res_func(m_o)
       d = np.asarray(d,dtype=dtype)
       m_new = solver(J,-d+J.dot(m_o))
-      d_new = obj_func(m_new)
+      d_new = res_func(m_new)
       status,message = conv(d_new)
       logger.debug(message)
 

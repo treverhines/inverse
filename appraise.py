@@ -9,7 +9,6 @@ import scipy.sparse.linalg
 import logging
 from nonlin_lstsq import nonlin_lstsq
 from misc import list_flatten
-
 logger = logging.getLogger(__name__)
 
 ##------------------------------------------------------------------------------
@@ -27,45 +26,6 @@ def model_covariance(G,sigma,rcond=1e-15):
   Gg = np.linalg.pinv(sigma_inv[:,None]*G,rcond)
   Cm = Gg.dot(Gg.transpose())
   return Cm
-
-##------------------------------------------------------------------------------
-def cross_validate(exclude_groups,*args,**kwargs):
-  '''
-  cross validation routine.  This function runs nonlin_lstsq to find the optimal
-  model parameters while excluding each of the groups of data indices given in 
-  exclude groups.  It returns the L2 norm of the predicted data for each of the
-  excluded groups minus the observed data
-
-  PARAMETERS
-  ----------
-    exclude_groups: list of groups of data indices to exclude
-    *args: arguments for nonlin_lstsq
-    **kwargs: arguments for nonlin_lstsq
-  '''                     
-  logger.info('starting cross validation iteration')
-  system = args[0]
-  system_args = kwargs.get('system_args',())
-  system_kwargs = kwargs.get('system_kwargs',{})
-  data = args[1]
-  data_no = len(data)
-  sigma = kwargs.get('sigma',np.ones(data_no))
-  parameters = args[2]
-  group_no = len(exclude_groups)
-  param_no = len(parameters)
-  residual = np.zeros(data_no)
-  for itr,exclude_indices in enumerate(exclude_groups):
-    data_indices = [i for i in range(data_no) if not i in exclude_indices]
-    pred_params = nonlin_lstsq(*args,
-                               data_indices=data_indices,
-                               **kwargs)
-    pred_data = system(pred_params,*system_args,**system_kwargs)
-    residual[exclude_indices] = pred_data[exclude_indices] - data[exclude_indices]
-    residual[exclude_indices] /= sigma[exclude_indices] # normalize residuals
-    logger.info('finished cross validation for test group %s of '
-                '%s' % (itr+1,group_no))
-  L2 = np.linalg.norm(residual)
-  logger.info('finished cross validation with predicted L2: %s' % L2)
-  return L2
 
 ##------------------------------------------------------------------------------
 def bootstrap(bootstrap_iterations,*args,**kwargs):
