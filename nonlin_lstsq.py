@@ -9,6 +9,7 @@ import scipy.sparse.linalg
 import logging
 import solvers
 from tikhonov import Perturb
+from tikhonov import tikhonov_matrix
 from misc import list_flatten
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ def nonlin_lstsq(system,
                  solver=solvers.lstsq,
                  solver_args=None,
                  solver_kwargs=None,
-                 reg_matrix=None,
+                 regularization=None,
                  LM_damping=False,
                  LM_param=10.0,
                  LM_factor=2.0,   
@@ -159,9 +160,9 @@ def nonlin_lstsq(system,
   -----
     system: function where the first argument is a vector of model parameters 
             and the remaining arguments are system args and system kwargs
-    data: vector of data values
+    data: vector of data values (N,)
     m_o: vector of model parameter initial guesses.  If an integer is provided
-         then the initial guess will be a vector of ones with that length  
+         then the initial guess will be a vector of ones with that length (M,)  
 
   **kwargs 
   -------
@@ -181,7 +182,15 @@ def nonlin_lstsq(system,
     solver_args: additional arguments for the solver after G and d
     solver_kwargs: additional key word arguments for the solver 
     sigma: data uncertainty vector
-    reg_matrix: regularization matrix scaled by the penalty parameter
+    regularization: regularization matrix scaled by the penalty parameter.  This
+                    is a (*,M) array.                              
+                                         OR
+                    array of length 2 where the first argument is the tikhonov 
+                    regularization order and the second argument is the penalty
+                    parameter.  The regularization matrix is assembled assuming
+                    that the position of the model parameters in the vector m 
+                    corresponds to their spatial relationship.
+
     LM_damping: flag indicating whether to use the Levenberg Marquart algorithm 
                 which damps step sizes in each iteration but ensures convergence
     LM_param: starting value for the Levenberg Marquart parameter 
@@ -239,11 +248,16 @@ def nonlin_lstsq(system,
   if data_indices is None:
     data_indices = range(data_no)
 
-  if reg_matrix is None:
-    reg_matrix = np.zeros((0,param_no),dtype=dtype)
+  if np.shape(regularization)==(2,):
+    order = regularization[0]
+    mag = regularization[1]
+    regularization = mag*tikhonov_matrix(range(param_no),order)
 
-  if hasattr(reg_matrix,'todense'):
-    reg_matrix = np.array(reg_matrix.todense())
+  if regularization is None:
+    regularization = np.zeros((0,param_no),dtype=dtype)
+
+  if hasattr(regularization,'todense'):
+    regularization = np.array(regularization.todense())
 
   if LM_damping:
     lm_matrix = LM_param*np.eye(param_no,dtype=dtype)
@@ -258,12 +272,12 @@ def nonlin_lstsq(system,
                                 jacobian,
                                 jacobian_args,
                                 jacobian_kwargs,
-                                reg_matrix,
+                                regularization,
                                 lm_matrix,
                                 data_indices)
 
   final = np.zeros(len(data_indices) +
-                   np.shape(reg_matrix)[0] +
+                   np.shape(regularization)[0] +
                    np.shape(lm_matrix)[0])
 
   conv = Converger(final,atol=atol,rtol=rtol)

@@ -22,7 +22,7 @@ def _parser(args,kwargs):
                'm_o':args[2],
                'data_no':data_no,
                'm_no':m_no,
-               'reg_matrix':kwargs.get('reg_matrix'),
+               'regularization':kwargs.get('regularization'),
                'sigma':kwargs.get('sigma',np.ones(data_no)),
                'system_args':kwargs.get('system_args',()),
                'system_kwargs':kwargs.get('system_kwargs',{}),
@@ -43,7 +43,7 @@ def CV(penalty_range,*args,**kwargs):
 
   This function takes the same arguments as nonlin_lstsq with the additional 
   penalty_range argument.  One of the provided key word arguments must be 
-  'reg_matrix'.
+  'regularization'.
   
   PARAMETERS
   ----------
@@ -60,11 +60,11 @@ def CV(penalty_range,*args,**kwargs):
 
   '''
   L2_list = np.zeros(len(penalty_range))
-  reg_matrix = kwargs.pop('reg_matrix')
+  regularization = kwargs.pop('regularization')
   for itr,p in enumerate(penalty_range):
-    scaled_reg_matrix = p*reg_matrix
+    scaled_regularization = p*regularization
     L2_list[itr] = LOOCV_step(*args,
-                              reg_matrix=scaled_reg_matrix,
+                              regularization=scaled_regularization,
                               **kwargs)
   return L2_list
 
@@ -75,7 +75,7 @@ def GCV(penalty_range,*args,**kwargs):
 
   This function takes the same arguments as nonlin_lstsq with the additional 
   penalty_range argument.  One of the provided key word arguments must be 
-  'reg_matrix'.
+  'regularization'.
   
   PARAMETERS
   ----------
@@ -92,11 +92,11 @@ def GCV(penalty_range,*args,**kwargs):
 
   '''
   L2_list = np.zeros(len(penalty_range))
-  reg_matrix = kwargs.pop('reg_matrix')
+  regularization = kwargs.pop('regularization')
   for itr,p in enumerate(penalty_range):
-    scaled_reg_matrix = p*reg_matrix
+    scaled_regularization = p*regularization
     L2_list[itr] = GCV_step(*args,
-                            reg_matrix=scaled_reg_matrix,
+                            regularization=scaled_regularization,
                             **kwargs)
   return L2_list
 
@@ -107,7 +107,7 @@ def KFCV(K,penalty_range,*args,**kwargs):
 
   This function takes the same arguments as nonlin_lstsq with the additional 
   penalty_range argument.  One of the provided key word arguments must be 
-  'reg_matrix'.
+  'regularization'.
   
   As opposed to the leave-one-out cross validation, this algorithm successively 
   leaves out one of K groups of data.  The data groups are randomly determines
@@ -130,14 +130,14 @@ def KFCV(K,penalty_range,*args,**kwargs):
   '''
   parsed_args = _parser(args,kwargs)
   L2_list = np.zeros(len(penalty_range))
-  reg_matrix = kwargs.pop('reg_matrix')
+  regularization = kwargs.pop('regularization')
   groups = misc.divide_list(np.random.choice(parsed_args['data_no'],
                                              parsed_args['data_no'],
                                              replace=False),K)
   for itr,p in enumerate(penalty_range):
-    scaled_reg_matrix = p*reg_matrix
+    scaled_regularization = p*regularization
     L2_list[itr] = KFCV_step(groups,*args,
-                             reg_matrix=scaled_reg_matrix,
+                             regularization=scaled_regularization,
                              **kwargs)
   return L2_list
 
@@ -189,7 +189,7 @@ def GCV_step(*args,**kwargs):
 
   # weight the jacobian by the data uncertainty
   jac = (1.0/parsed_args['sigma'])[:,None]*jac
-  L = parsed_args['reg_matrix']
+  L = parsed_args['regularization']
   # compute the generalized inverse 
   jac_inv = np.linalg.inv(jac.transpose().dot(jac) + 
                           L.transpose().dot(L)).dot(jac.transpose())

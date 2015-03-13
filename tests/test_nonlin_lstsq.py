@@ -52,6 +52,20 @@ class Test(unittest.TestCase):
                                       system_args=(x,))
     self.assertTrue(np.linalg.norm(model_pred - model_true) < tol)
 
+  def test_regularization(self):
+    x = np.linspace(0,10,4)
+    model_true = np.array([2.5,5.0])
+    data = f(model_true,x)
+    model_pred = inverse.nonlin_lstsq(f,data,2,regularization=(0,0.0),
+                                      system_args=(x,))
+    self.assertTrue(np.linalg.norm(model_pred - model_true) < tol)
+    model_pred = inverse.nonlin_lstsq(f,data,2,regularization=(0,1e8),
+                                      system_args=(x,))
+    self.assertTrue(np.linalg.norm(model_pred) < tol)
+    model_pred = inverse.nonlin_lstsq(f,data,2,regularization=(1,1e8),
+                                      system_args=(x,))
+    self.assertTrue((model_pred[0] - model_pred[1]) < tol)
+
   def test_nonlinear(self):
     x = np.linspace(0,10,4)
     model_true = np.array([2.5,5.0])
