@@ -5,6 +5,7 @@ import os
 import numpy as np
 import logging
 from nonlin_lstsq import nonlin_lstsq
+from nonlin_lstsq import jacobian_fd
 import misc
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,11 @@ def _parser(args,kwargs):
                'sigma':kwargs.get('sigma',np.ones(data_no)),
                'system_args':kwargs.get('system_args',()),
                'system_kwargs':kwargs.get('system_kwargs',{}),
-               'jacobian':kwargs.get('jacobian',inverse.jacobian_fd),
+               'jacobian':kwargs.get('jacobian',jacobian_fd),
                'jacobian_args':kwargs.get('jacobian_args',()),
                'jacobian_kwargs':kwargs.get('jacobian_kwargs',{})}
 
-  if arguments['jacobian'] == inverse.jacobian_fd:
+  if arguments['jacobian'] == jacobian_fd:
     arguments['jacobian_args'] = (arguments['system'],)
     arguments['jacobian_kwargs'] = {'system_args':arguments['system_args'],
                                     'system_kwargs':arguments['system_kwargs']}    
