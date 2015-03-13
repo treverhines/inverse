@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import numpy as np
 import logging
-
 logger = logging.getLogger(__name__)
 
 def correlated_noise(var,decay,times):

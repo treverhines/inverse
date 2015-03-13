@@ -4,8 +4,7 @@ import sys
 import os
 import numpy as np
 import logging
-from inverse.nonlin_lstsq import nonlin_lstsq
-import inverse
+from nonlin_lstsq import nonlin_lstsq
 import misc
 logger = logging.getLogger(__name__)
 
@@ -64,7 +63,7 @@ def CV(penalty_range,*args,**kwargs):
   reg_matrix = kwargs.pop('reg_matrix')
   for itr,p in enumerate(penalty_range):
     scaled_reg_matrix = p*reg_matrix
-    L2_list[itr] = _LOOCV_step(*args,
+    L2_list[itr] = LOOCV_step(*args,
                               reg_matrix=scaled_reg_matrix,
                               **kwargs)
   return L2_list
@@ -96,7 +95,7 @@ def GCV(penalty_range,*args,**kwargs):
   reg_matrix = kwargs.pop('reg_matrix')
   for itr,p in enumerate(penalty_range):
     scaled_reg_matrix = p*reg_matrix
-    L2_list[itr] = _GCV_step(*args,
+    L2_list[itr] = GCV_step(*args,
                             reg_matrix=scaled_reg_matrix,
                             **kwargs)
   return L2_list
@@ -137,12 +136,12 @@ def KFCV(K,penalty_range,*args,**kwargs):
                                              replace=False),K)
   for itr,p in enumerate(penalty_range):
     scaled_reg_matrix = p*reg_matrix
-    L2_list[itr] = _KFCV_step(groups,*args,
+    L2_list[itr] = KFCV_step(groups,*args,
                              reg_matrix=scaled_reg_matrix,
                              **kwargs)
   return L2_list
 
-def _LOOCV_step(*args,**kwargs):
+def LOOCV_step(*args,**kwargs):
   parsed_args = _parser(args,kwargs)
   residual = np.zeros(parsed_args['data_no'])
   # loop over data indices to leave out
@@ -168,7 +167,7 @@ def _LOOCV_step(*args,**kwargs):
   L2 = residual.dot(residual)
   return L2
 
-def _GCV_step(*args,**kwargs):
+def GCV_step(*args,**kwargs):
   parsed_args = _parser(args,kwargs)
   # predicted model parameters with provided penalty parameter
   m_pred = nonlin_lstsq(parsed_args['system'],
@@ -201,7 +200,7 @@ def _GCV_step(*args,**kwargs):
   den = np.trace(np.eye(parsed_args['data_no']) - jac.dot(jac_inv))**2
   return num/den
 
-def _KFCV_step(groups,*args,**kwargs):
+def KFCV_step(groups,*args,**kwargs):
   parsed_args = _parser(args,kwargs)
   residual = np.zeros(parsed_args['data_no'])
   for indices in groups:

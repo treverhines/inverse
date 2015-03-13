@@ -7,9 +7,9 @@ import scipy.optimize
 import scipy.sparse
 import scipy.sparse.linalg
 import logging
+import solvers
 from tikhonov import Perturb
 from misc import list_flatten
-
 logger = logging.getLogger(__name__)
 
 ##------------------------------------------------------------------------------
@@ -129,22 +129,6 @@ def _residual(system,
   return residual_function,residual_jacobian
 
 ##------------------------------------------------------------------------------
-def lstsq(G,d,*args,**kwargs):
-  '''
-  used by nonlin_lstsq
-  '''
-  out = np.linalg.lstsq(G,d,*args,**kwargs)[0]
-  return out
-
-##------------------------------------------------------------------------------
-def nnls(G,d,*args,**kwargs):
-  '''
-  used by nonlin_lstsq
-  '''
-  out = scipy.optimize.nnls(G,d)[0]
-  return out
-
-##------------------------------------------------------------------------------
 def nonlin_lstsq(system,
                  data,
                  m_o,
@@ -154,7 +138,7 @@ def nonlin_lstsq(system,
                  jacobian=None,
                  jacobian_args=None,
                  jacobian_kwargs=None,
-                 solver=lstsq,
+                 solver=solvers.lstsq,
                  solver_args=None,
                  solver_kwargs=None,
                  reg_matrix=None,
