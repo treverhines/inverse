@@ -1,17 +1,12 @@
 #!/usr/bin/env python
-import copy
-import sys
-import os
 import numpy as np
-import scipy.optimize
-import scipy.sparse
-import scipy.sparse.linalg
 import logging
 import solvers
 from tikhonov import Perturb
 from tikhonov import tikhonov_matrix
-from misc import list_flatten
+from inverse_misc import funtime
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 ##------------------------------------------------------------------------------
 class Converger:
@@ -129,28 +124,100 @@ def _residual(system,
 
   return residual_function,residual_jacobian
 
+def _arg_parser(args,kwargs):
+  # define kwargs that do not default to None
+  assert len(args) == 3, 'nonlin_lstsq takes exactly 3 positional arguments'
+
+  p = {'solver':solvers.lstsq,
+       'LM_damping':False,
+       'LM_param':10.0,
+       'LM_factor':2.0,
+       'maxitr':20,
+       'rtol':1.0e-2,
+       'atol':1.0e-2,
+       'sigma':None,
+       'system_args':None,
+       'system_kwargs':None,
+       'jacobian':None,
+       'jacobian_args':None,
+       'jacobian_kwargs':None,
+       'solver_args':None,
+       'solver_kwargs':None,
+       'data_indices':None,
+       'regularization':None,
+       'dtype':None}
+
+  p.update(kwargs)
+  p['system'] = args[0]
+  p['data'] = args[1]  
+  p['m_o'] = args[2]
+
+  # if the initial guess is an integer, then interpret it as length of the model
+  # parameter vector and assume ones as the initial guess
+  if type(p['m_o']) == int:
+    p['m_o'] = np.ones(p['m_o'])
+
+  p['param_no'] = len(p['m_o'])
+  p['data_no'] = len(p['data'])
+
+  # if no uncertainty is given then assume it is ones.
+  if p['sigma'] is None:
+    p['sigma'] = np.ones(p['data_no'])
+
+  if p['system_args'] is None:
+    p['system_args'] = []
+
+  if p['system_kwargs'] is None:
+    p['system_kwargs'] = {}
+
+  # if no jacobian is provided then set use the finite difference approximation
+  if p['jacobian'] is None:
+    p['jacobian'] = jacobian_fd
+    p['jacobian_args'] = [p['system']]
+    p['jacobian_kwargs'] = {'system_args':p['system_args'],
+                            'system_kwargs':p['system_kwargs']}
+
+  if p['jacobian_args'] is None:
+    p['jacobian_args'] = []
+
+  if p['jacobian_kwargs'] is None:
+    p['jacobian_kwargs'] = {}
+
+  if p['solver_args'] is None:
+    p['solver_args'] = []
+
+  if p['solver_kwargs'] is None:
+    p['solver_kwargs'] = {}
+
+  # default to assuming all data will be used.  This functionality is added for
+  # to make cross validation easier
+  if p['data_indices'] is None:
+    p['data_indices'] = range(p['data_no'])
+
+  # if regularization is a array or tuple of length 2 then assume it describes
+  # the regularization order and the penalty parameter then create the
+  # regularization matrix
+  if np.shape(p['regularization'])==(2,):
+    order = p['regularization'][0]
+    mag = p['regularization'][1]
+    p['regularization'] = mag*tikhonov_matrix(range(p['param_no']),order)
+
+  if p['regularization'] is None:
+    p['regularization'] = np.zeros((0,p['param_no']))
+
+  # if regularization is given as a sparse matrix and unsparsify it
+  if hasattr(p['regularization'],'todense'):
+    p['regularization'] = np.array(p['regularization'].todense())
+
+  if p['LM_damping']:
+    p['lm_matrix'] = p['LM_param']*np.eye(p['param_no'])
+  else:
+    p['lm_matrix'] = np.zeros((0,p['param_no']))
+
+  return p
+
 ##------------------------------------------------------------------------------
-def nonlin_lstsq(system,
-                 data,
-                 m_o,
-                 sigma=None,
-                 system_args=None,
-                 system_kwargs=None,
-                 jacobian=None,
-                 jacobian_args=None,
-                 jacobian_kwargs=None,
-                 solver=solvers.lstsq,
-                 solver_args=None,
-                 solver_kwargs=None,
-                 regularization=None,
-                 LM_damping=False,
-                 LM_param=10.0,
-                 LM_factor=2.0,   
-                 maxitr=20,
-                 rtol=1.0e-2,
-                 atol=1.0e-2,
-                 data_indices=None,
-                 dtype=None):
+def nonlin_lstsq(*args,**kwargs):
   '''
   Newtons method for solving a least squares problem
 
@@ -208,112 +275,62 @@ def nonlin_lstsq(system,
   -------
     m_new: best fit model parameters
   '''
-  if type(m_o) == int:
-    m_o = np.ones(m_o)
-
-  param_no = len(m_o)
-  data_no = len(data)
-
-  m_o = np.array(m_o,dtype=dtype)
-  data = np.array(data,dtype=dtype)
-
-  if sigma is None:
-    sigma = np.ones(data_no,dtype=dtype)
-
-  if system_args is None:
-    system_args = []
-
-  if system_kwargs is None:
-    system_kwargs = {}
-
-  if jacobian is None:
-    jacobian = jacobian_fd
-    jacobian_args = [system]
-    jacobian_kwargs = {'system_args':system_args,
-                       'system_kwargs':system_kwargs,
-                       'dtype':dtype}
-
-  if jacobian_args is None:
-    jacobian_args = []
-
-  if jacobian_kwargs is None:
-    jacobian_kwargs = {}
-
-  if solver_args is None:
-    solver_args = []
-
-  if solver_kwargs is None:
-    solver_kwargs = {}
-
-  if data_indices is None:
-    data_indices = range(data_no)
-
-  if np.shape(regularization)==(2,):
-    order = regularization[0]
-    mag = regularization[1]
-    regularization = mag*tikhonov_matrix(range(param_no),order)
-
-  if regularization is None:
-    regularization = np.zeros((0,param_no),dtype=dtype)
-
-  if hasattr(regularization,'todense'):
-    regularization = np.array(regularization.todense())
-
-  if LM_damping:
-    lm_matrix = LM_param*np.eye(param_no,dtype=dtype)
-  else:
-    lm_matrix = np.zeros((0,param_no),dtype=dtype)
+  p = _arg_parser(args,kwargs)
  
-  res_func,res_jac = _residual(system,
-                                data,
-                                sigma,
-                                system_args,
-                                system_kwargs,
-                                jacobian,
-                                jacobian_args,
-                                jacobian_kwargs,
-                                regularization,
-                                lm_matrix,
-                                data_indices)
+  res_func,res_jac = _residual(p['system'],
+                               p['data'],
+                               p['sigma'],
+                               p['system_args'],
+                               p['system_kwargs'],
+                               p['jacobian'],
+                               p['jacobian_args'],
+                               p['jacobian_kwargs'],
+                               p['regularization'],
+                               p['lm_matrix'],
+                               p['data_indices'])
 
-  final = np.zeros(len(data_indices) +
-                   np.shape(regularization)[0] +
-                   np.shape(lm_matrix)[0])
+  final = np.zeros(len(p['data_indices']) +
+                   np.shape(p['regularization'])[0] +
+                   np.shape(p['lm_matrix'])[0])
 
-  conv = Converger(final,atol=atol,rtol=rtol)
+  conv = Converger(final,atol=p['atol'],rtol=p['rtol'])
   count = 0
   status = None
-  while not ((status == 0) | (status == 3) | (count == maxitr)):
-    J = res_jac(m_o)
-    J = np.asarray(J,dtype=dtype)
-    d = res_func(m_o)
-    d = np.asarray(d,dtype=dtype)
-    m_new = solver(J,-d+J.dot(m_o),*solver_args,**solver_kwargs)
+  while not ((status == 0) | (status == 3) | (count == p['maxitr'])):
+    J = res_jac(p['m_o'])
+    J = np.asarray(J,dtype=p['dtype'])
+    d = res_func(p['m_o'])
+    d = np.asarray(d,dtype=p['dtype'])
+    m_new = p['solver'](J,-d+J.dot(p['m_o']),
+                        *p['solver_args'],
+                        **p['solver_kwargs'])
     d_new = res_func(m_new)
     status,message = conv(d_new)
     logger.debug(message)
-    if (status == 1) and LM_damping:
-      logger.debug('decreasing LM parameter to %s' % LM_param)
-      lm_matrix /= LM_factor
-      LM_param /= LM_factor
+    if (status == 1) and p['LM_damping']:
+      logger.debug('decreasing LM parameter to %s' % p['LM_param'])
+      p['lm_matrix'] /= p['LM_factor']
+      p['LM_param'] /= p['LM_factor']
 
-    while ((status == 2) | (status == 3)) and LM_damping:
-      logger.debug('increasing LM parameter to %s' % LM_param)
-      lm_matrix *= LM_factor
-      LM_param *= LM_factor
-      J = res_jac(m_o)
-      J = np.asarray(J,dtype=dtype)
+    while ((status == 2) | (status == 3)) and p['LM_damping']:
+      logger.debug('increasing LM parameter to %s' % p['LM_param'])
+      p['lm_matrix'] *= p['LM_factor']
+      p['LM_param'] *= p['LM_factor']
+      J = res_jac(p['m_o'])
+      J = np.asarray(J,dtype=p['dtype'])
       d = res_func(m_o)
-      d = np.asarray(d,dtype=dtype)
-      m_new = solver(J,-d+J.dot(m_o),*solver_args,**solver_kwargs)
+      d = np.asarray(d,dtype=p['dtype'])
+      m_new = p['solver'](J,-d+J.dot(p['m_o']),
+                          *p['solver_args'],
+                          **p['solver_kwargs'])
       d_new = res_func(m_new)
       status,message = conv(d_new)
       logger.debug(message)
 
-    m_o = m_new
+    p['m_o'] = m_new
     conv.set(d_new)
     count += 1
-    if count == maxitr:
+    if count == p['maxitr']:
       logger.debug('converged due to maxitr')
 
-  return m_o
+  return p['m_o']

@@ -1,14 +1,8 @@
 #!/usr/bin/env python
-import copy
-import sys
-import os
 import numpy as np
-import scipy.optimize
-import scipy.sparse
-import scipy.sparse.linalg
 import logging
 from nonlin_lstsq import nonlin_lstsq
-from misc import list_flatten
+from inverse_misc import list_flatten
 logger = logging.getLogger(__name__)
 
 ##------------------------------------------------------------------------------

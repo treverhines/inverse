@@ -1,12 +1,10 @@
 #!/usr/bin/env python
-import copy
-import sys
-import os
 import numpy as np
 import logging
 from nonlin_lstsq import nonlin_lstsq
 from nonlin_lstsq import jacobian_fd
-import misc
+from nonlin_lstsq import _arg_parser
+from inverse_misc import divide_list
 logger = logging.getLogger(__name__)
 
 def _parser(args,kwargs):
@@ -60,13 +58,19 @@ def CV(penalty_range,*args,**kwargs):
   reference: Aster et al. 2005, Parameter Estimation and Inverse Problems 
 
   '''
+  p = _arg_parser(args,kwargs)
+  system = p.pop('system')
+  data = p.pop('data')
+  m_o = p.pop('m_o')
+  p.pop('data_indices')
+
   L2_list = np.zeros(len(penalty_range))
-  regularization = kwargs.pop('regularization')
-  for itr,p in enumerate(penalty_range):
-    scaled_regularization = p*regularization
-    L2_list[itr] = LOOCV_step(*args,
+  regularization = p.pop('regularization')
+  for itr,penalty in enumerate(penalty_range):
+    scaled_regularization = penalty*regularization
+    L2_list[itr] = LOOCV_step(system,data,m_o,
                               regularization=scaled_regularization,
-                              **kwargs)
+                              **p)
   return L2_list
 
 def GCV(penalty_range,*args,**kwargs):
@@ -92,13 +96,19 @@ def GCV(penalty_range,*args,**kwargs):
   reference: Aster et al. 2005, Parameter Estimation and Inverse Problems 
 
   '''
+  p = _arg_parser(args,kwargs)
+  system = p.pop('system')
+  data = p.pop('data')
+  m_o = p.pop('m_o')
+  p.pop('data_indices')
+
   L2_list = np.zeros(len(penalty_range))
-  regularization = kwargs.pop('regularization')
-  for itr,p in enumerate(penalty_range):
-    scaled_regularization = p*regularization
-    L2_list[itr] = GCV_step(*args,
+  regularization = p.pop('regularization')
+  for itr,penalty in enumerate(penalty_range):
+    scaled_regularization = penalty*regularization
+    L2_list[itr] = GCV_step(system,data,m_o,
                             regularization=scaled_regularization,
-                            **kwargs)
+                            **p)
   return L2_list
 
 def KFCV(K,penalty_range,*args,**kwargs):
@@ -129,92 +139,115 @@ def KFCV(K,penalty_range,*args,**kwargs):
   reference: Aster et al. 2005, Parameter Estimation and Inverse Problems 
 
   '''
-  parsed_args = _parser(args,kwargs)
+  p = _arg_parser(args,kwargs)
+  system = p.pop('system')
+  data = p.pop('data')
+  m_o = p.pop('m_o')
+  p.pop('data_indices')
+
   L2_list = np.zeros(len(penalty_range))
-  regularization = kwargs.pop('regularization')
-  groups = misc.divide_list(np.random.choice(parsed_args['data_no'],
-                                             parsed_args['data_no'],
-                                             replace=False),K)
-  for itr,p in enumerate(penalty_range):
-    scaled_regularization = p*regularization
-    L2_list[itr] = KFCV_step(groups,*args,
+  regularization = p.pop('regularization')
+  groups = divide_list(np.random.choice(p['data_no'],
+                                        p['data_no'],
+                                        replace=False),K)
+  for itr,penalty in enumerate(penalty_range):
+    scaled_regularization = penalty*regularization
+    L2_list[itr] = KFCV_step(groups,system,data,m_o,
                              regularization=scaled_regularization,
-                             **kwargs)
+                             **p)
   return L2_list
 
 def LOOCV_step(*args,**kwargs):
-  parsed_args = _parser(args,kwargs)
-  residual = np.zeros(parsed_args['data_no'])
+  p = _arg_parser(args,kwargs)
+  system = p.pop('system')
+  data = p.pop('data')
+  m_o = p.pop('m_o')
+  p.pop('data_indices')
+
+  residual = np.zeros(p['data_no'])
   # loop over data indices to leave out
-  for idx in range(parsed_args['data_no']):
+  for idx in range(p['data_no']):
     # data_indices consists of all data indices which are not 
     # left out of the inversion
-    data_indices = range(parsed_args['data_no'])
+    data_indices = range(p['data_no'])
     data_indices.remove(idx)
     # predicted model parameters with excluded data
-    m_pred = nonlin_lstsq(parsed_args['system'],
-                          parsed_args['data'],
-                          parsed_args['m_o'],
+    m_pred = nonlin_lstsq(system,
+                          data,
+                          m_o,
                           data_indices=data_indices,
-                          **kwargs)
+                          **p)
     # predicted data
-    data_pred = parsed_args['system'](m_pred,
-                                      *parsed_args['system_args'],
-                                      **parsed_args['system_kwargs'])
+    data_pred = system(m_pred,
+                       *p['system_args'],
+                       **p['system_kwargs'])
     # difference between predicted data and the exluded data
-    residual[idx] = data_pred[idx] - parsed_args['data'][idx]
-    residual[idx] /= parsed_args['sigma'][idx] 
+    residual[idx] = data_pred[idx] - data[idx]
+    residual[idx] /= p['sigma'][idx] 
   # return L2 norm of residuals
   L2 = residual.dot(residual)
   return L2
 
 def GCV_step(*args,**kwargs):
-  parsed_args = _parser(args,kwargs)
+  p = _arg_parser(args,kwargs)
+  system = p.pop('system')
+  data = p.pop('data')
+  m_o = p.pop('m_o')
+  p.pop('data_indices')
+
   # predicted model parameters with provided penalty parameter
-  m_pred = nonlin_lstsq(parsed_args['system'],
-                        parsed_args['data'],
-                        parsed_args['m_o'],
-                        **kwargs)
+  m_pred = nonlin_lstsq(system,
+                        data,
+                        m_o,
+                        **p)
   # predicted data
-  data_pred = parsed_args['system'](m_pred,
-                                    *parsed_args['system_args'],
-                                    **parsed_args['system_kwargs'])
+  data_pred = system(m_pred,
+                     *p['system_args'],
+                     **p['system_kwargs'])
   # predicted data, normalized by uncertainty
-  residual = (data_pred - parsed_args['data'])
-  residual /= parsed_args['sigma']
+  residual = (data_pred - data)
+  residual /= p['sigma']
   # Jacobian of the last iteration in nonlin_lstsq.  If the system 
   # was linear w.r.t the unknowns then this is the system matrix.
-  jac = parsed_args['jacobian'](m_pred,
-                                *parsed_args['jacobian_args'],
-                                **parsed_args['jacobian_kwargs'])
+  jac = p['jacobian'](m_pred,
+                      *p['jacobian_args'],
+                      **p['jacobian_kwargs'])
 
   # weight the jacobian by the data uncertainty
-  jac = (1.0/parsed_args['sigma'])[:,None]*jac
-  L = parsed_args['regularization']
+  jac = (1.0/p['sigma'])[:,None]*jac
+  L = p['regularization']
   # compute the generalized inverse 
   jac_inv = np.linalg.inv(jac.transpose().dot(jac) + 
                           L.transpose().dot(L)).dot(jac.transpose())
   # this is evaluating the formula from Aster et. al 2005.
   # There is the one notable difference that I am NOT normalizing by the 
   # number of data points
-  num = parsed_args['data_no']**2*(residual.dot(residual))
-  den = np.trace(np.eye(parsed_args['data_no']) - jac.dot(jac_inv))**2
+  num = p['data_no']**2*(residual.dot(residual))
+  den = np.trace(np.eye(p['data_no']) - jac.dot(jac_inv))**2
   return num/den
 
 def KFCV_step(groups,*args,**kwargs):
-  parsed_args = _parser(args,kwargs)
-  residual = np.zeros(parsed_args['data_no'])
+  p = _arg_parser(args,kwargs)
+  system = p.pop('system')
+  data = p.pop('data')
+  m_o = p.pop('m_o')
+  p.pop('data_indices')
+
+  residual = np.zeros(p['data_no'])
   for indices in groups:
     # find data indices which are not in 'indices'
-    data_indices = [i for i in range(parsed_args['data_no']) if not i in indices]
-    m_pred = nonlin_lstsq(*args,
+    data_indices = [i for i in range(p['data_no']) if not i in indices]
+    m_pred = nonlin_lstsq(system,
+                          data,
+                          m_o,
                           data_indices=data_indices,
-                          **kwargs)
-    data_pred = parsed_args['system'](m_pred,
-                                      *parsed_args['system_args'],
-                                      **parsed_args['system_kwargs'])
-    residual[indices] = data_pred[indices] - parsed_args['data'][indices]
-    residual[indices] /= parsed_args['sigma'][indices] 
+                          **p)
+
+    data_pred = system(m_pred,
+                       *p['system_args'],
+                       **p['system_kwargs'])
+    residual[indices] = data_pred[indices] - data[indices]
+    residual[indices] /= p['sigma'][indices] 
   L2 = residual.dot(residual)
   return L2
 

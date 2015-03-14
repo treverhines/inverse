@@ -4,7 +4,7 @@ routines which solve min_m||Gm - d|| with potentially additional
 constraints on m.
 '''
 import numpy as np
-import scipy
+import scipy.optimize
 import pymls
 
 def _arg_checker(fin):
