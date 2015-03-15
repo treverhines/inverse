@@ -317,7 +317,7 @@ def nonlin_lstsq(*args,**kwargs):
   easily add regularization constraints to illposed problems.  The following 
   further constrains the problem with a first order tikhonov regularization 
   matrix scaled by a penalty parameter of 0.001.  The null space in this 
-  case is anywhere that the product of m[0] and m[1] are the same.  The 
+  case is anywhere that the product of m[0] and m[1] is the same.  The 
   added regularization requires that m[0] = m[1].
  
     In [123]: def system(m,x):
@@ -326,7 +326,20 @@ def nonlin_lstsq(*args,**kwargs):
     In [124]: data = system([2.0,5.0],x)
     In [125]: nonlin_lstsq(system2,data,2,system_args=(x,),regularization=(1,0.001))
     Out[157]: array([ 3.16227767,  3.16227767])
+
+  regularization can also be added through the 'solver' argument.  Here, the
+  solution is bounded such that 2.0 = m[0] and 0 <= m[1] <= 100.  These bounds
+  are imposed by making the solver a bounded least squares solver and adding the 
+  two solver args, which are the minimum and maximum values for the model 
+  parameters
+
+    In [25]: nonlin_lstsq(system,data,2,system_args=(x,),
+                          solver=inverse.bounded_lstsq,
+                          solver_args=([2.0,0.0],[2.0,100.0]))
+    Out[25]: array([ 2., 5.])
+
   '''
+  maxlmitr = 50
   p = _arg_parser(args,kwargs)
  
   res_func,res_jac = _residual(p['system'],
@@ -371,6 +384,7 @@ def nonlin_lstsq(*args,**kwargs):
       p['lm_matrix'] /= p['LM_factor']
       p['LM_param'] /= p['LM_factor']
 
+    lmitr = 0
     while ((status == 2) | (status == 3)) and p['LM_damping']:
       logger.debug('increasing LM parameter to %s' % p['LM_param'])
       p['lm_matrix'] *= p['LM_factor']
@@ -383,8 +397,15 @@ def nonlin_lstsq(*args,**kwargs):
                           *p['solver_args'],
                           **p['solver_kwargs'])
       d_new = res_func(m_new)
-      status,message = conv(d_new)
+      status,message = conv(d_new)      
       logger.debug(message)
+      lmitr += 1
+      if lmitr == maxlmitr:
+        logger.debug('Levenberg-Marquardt step damping is not allowing the '
+                     'solution to converge.  This is likely resulting from '
+                     'bounds imposed by the solver')
+        logger.debug('Levenberg-Marquardt step damping is being turned off')
+        p['LM_damping'] = False
 
     p['m_o'] = m_new
     conv.set(d_new)

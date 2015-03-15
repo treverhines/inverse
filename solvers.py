@@ -28,7 +28,7 @@ def _arg_checker(fin):
 
 @_arg_checker
 def lstsq(G,d,*args,**kwargs):
-  '''                                                                                                              
+  '''                                     
   wrapper from scipy.linalg.lstsq  
   '''
   out = scipy.linalg.lstsq(G,d,*args,**kwargs)[0]
@@ -36,7 +36,7 @@ def lstsq(G,d,*args,**kwargs):
 
 @_arg_checker
 def nnls(G,d,*args,**kwargs):
-  '''                                                                                                              
+  '''               
   wrapper from scipy.optimize.nnls
   '''
   out = scipy.optimize.nnls(G,d,*args,**kwargs)[0]
@@ -63,6 +63,17 @@ def bounded_lstsq(G,d,lower_lim,upper_lim):
     best fit model vector with the applied constraints (M,)
 
   '''
+  lower_lim = np.asarray(lower_lim)
+  upper_lim = np.asarray(upper_lim)
+  llim_shape = np.shape(lower_lim)
+  ulim_shape = np.shape(upper_lim)
+  G_shape = np.shape(G)
+  assert llim_shape == (G_shape[1],), ('lower_lim must be a 1D vector with '
+                                       'length equal to the number of model '
+                                       'parameters')
+  assert ulim_shape == (G_shape[1],), ('upper_lim must be a 1D vector with '
+                                       'length equal to the number of model '
+                                       'parameters')
   d = d[:,None]
   lower_lim = lower_lim[:,None]
   upper_lim = upper_lim[:,None]
