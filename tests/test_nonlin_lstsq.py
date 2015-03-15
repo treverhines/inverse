@@ -3,7 +3,7 @@ import unittest
 import inverse
 import numpy as np
 
-tol = 1e-10
+tol = 1e-3
 # make sure that nonlin_lstsq works for a linear case
 
 def f_nonunique(model,x):

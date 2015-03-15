@@ -51,7 +51,7 @@ def jacobian_fd(m_o,
                 system,
                 system_args=None,
                 system_kwargs=None,
-                dm=0.01,
+                dm=1e-4,
                 dtype=None):
   '''
   Parameters
@@ -129,12 +129,12 @@ def _arg_parser(args,kwargs):
   assert len(args) == 3, 'nonlin_lstsq takes exactly 3 positional arguments'
 
   p = {'solver':solvers.lstsq,
-       'LM_damping':False,
-       'LM_param':10.0,
+       'LM_damping':True,
+       'LM_param':1e-4,
        'LM_factor':2.0,
-       'maxitr':20,
-       'rtol':1.0e-2,
-       'atol':1.0e-2,
+       'maxitr':50,
+       'rtol':1.0e-4,
+       'atol':1.0e-4,
        'sigma':None,
        'system_args':None,
        'system_kwargs':None,
@@ -210,6 +210,8 @@ def _arg_parser(args,kwargs):
     p['regularization'] = np.array(p['regularization'].todense())
 
   if p['LM_damping']:
+    assert p['LM_param'] > 0.0,('Levenberg-Marquardt parameter must be greater '
+                                'than 0.0')
     p['lm_matrix'] = p['LM_param']*np.eye(p['param_no'])
   else:
     p['lm_matrix'] = np.zeros((0,p['param_no']))
@@ -228,8 +230,10 @@ def nonlin_lstsq(*args,**kwargs):
     system: function where the first argument is a vector of model parameters 
             and the remaining arguments are system args and system kwargs
     data: vector of data values (N,)
-    m_o: vector of model parameter initial guesses.  If an integer is provided
-         then the initial guess will be a vector of ones with that length (M,)  
+    m_o: vector of model parameter initial guesses.  
+             OR
+         an integer specifying the number of model parameters.  If an integer
+         is provided then the initial guess is a vector of ones (M,)  
 
   **kwargs 
   -------
@@ -245,13 +249,16 @@ def nonlin_lstsq(*args,**kwargs):
     solver: function which solves "G*m = d" for m, where the first two arguments
             are G and d.  inverse.lstsq, and inverse.nnls are wrappers for 
             np.linalg.lstsq, and scipy.optimize.nnls and can be used here. Using
-            nnls ensures that the output model parameters are non-negative
+            nnls ensures that the output model parameters are non-negative.
+            inverse.bounded_lstsq can be used to bound the results of m.  The 
+            bounds must be specified as with 'solver_args'. See the
+            documentation for inverse.bounded_lstsq for more details.
     solver_args: additional arguments for the solver after G and d
     solver_kwargs: additional key word arguments for the solver 
     sigma: data uncertainty vector
     regularization: regularization matrix scaled by the penalty parameter.  This
                     is a (*,M) array.                              
-                                         OR
+                        OR
                     array of length 2 where the first argument is the tikhonov 
                     regularization order and the second argument is the penalty
                     parameter.  The regularization matrix is assembled assuming
@@ -274,6 +281,46 @@ def nonlin_lstsq(*args,**kwargs):
   Returns
   -------
     m_new: best fit model parameters
+
+  Usage
+  -----  
+    In [1]: import numpy as np
+    In [2]: from inverse import nonlin_lstsq
+    In [3]: def system(m,x):
+     ...:     return m[0] + m[1]*m[0]*x
+     ...: 
+    In [4]: x = np.linspace(0,10,10)
+    In [5]: m = np.array([1.0,2.0])
+    In [6]: data = system(m,x)
+    In [7]: nonlin_lstsq(system,data,2,system_args=(x,))
+    Out[7]: array([ 1.,  2.])
+
+  nonlin_lstsq also handles more difficult systems which can potentially yield
+  undefined values for some values of m.  As long as 'system' evaluated with the
+  initial guess for m produces a finite output, then nonlin_lstsq will converge 
+  to a solution.
+
+    In [8]: def system(m,x):
+        return m[0]*np.log(m[1]*(x+1.0))
+       ...: 
+
+    In [9]: data = system(m,x)
+    In [10]: nonlin_lstsq(system,data,[10.0,10.0],system_args=(x,))
+    Out[10]: array([ 1.00000011,  1.99999989])
+
+  what seperates nonlin_lstsq from other nonlinear solvers is its ability to
+  easily add regularization constraints to illposed problems.  The following 
+  further constrains the problem with a first order tikhonov regularization 
+  matrix scaled by a penalty parameter of 0.001.  The null space in this 
+  case is anywhere that the product of m[0] and m[1] are the same.  The 
+  added regularization requires that m[0] = m[1].
+ 
+    In [123]: def system(m,x):
+        return m[0]*m[1]*x
+       .....: 
+    In [124]: data = system([2.0,5.0],x)
+    In [125]: nonlin_lstsq(system2,data,2,system_args=(x,),regularization=(1,0.001))
+    Out[157]: array([ 3.16227767,  3.16227767])
   '''
   p = _arg_parser(args,kwargs)
  
@@ -296,11 +343,18 @@ def nonlin_lstsq(*args,**kwargs):
   conv = Converger(final,atol=p['atol'],rtol=p['rtol'])
   count = 0
   status = None
+
+  J = res_jac(p['m_o'])
+  J = np.asarray(J,dtype=p['dtype'])
+  d = res_func(p['m_o'])
+  d = np.asarray(d,dtype=p['dtype'])
+  assert np.all(np.isfinite(J)), ('non-finite value encountered in the initial '
+                                  'Jacobian matrix.  Try using a different '
+                                  'initial guess for the model parameters')
+  assert np.all(np.isfinite(d)), ('non-finite value encountered in the initial '
+                                  'predicted data vector.  Try using a different '
+                                  'initial guess for the model parameters')
   while not ((status == 0) | (status == 3) | (count == p['maxitr'])):
-    J = res_jac(p['m_o'])
-    J = np.asarray(J,dtype=p['dtype'])
-    d = res_func(p['m_o'])
-    d = np.asarray(d,dtype=p['dtype'])
     m_new = p['solver'](J,-d+J.dot(p['m_o']),
                         *p['solver_args'],
                         **p['solver_kwargs'])
@@ -318,7 +372,7 @@ def nonlin_lstsq(*args,**kwargs):
       p['LM_param'] *= p['LM_factor']
       J = res_jac(p['m_o'])
       J = np.asarray(J,dtype=p['dtype'])
-      d = res_func(m_o)
+      d = res_func(p['m_o'])
       d = np.asarray(d,dtype=p['dtype'])
       m_new = p['solver'](J,-d+J.dot(p['m_o']),
                           *p['solver_args'],
@@ -332,5 +386,10 @@ def nonlin_lstsq(*args,**kwargs):
     count += 1
     if count == p['maxitr']:
       logger.debug('converged due to maxitr')
+
+    J = res_jac(p['m_o'])
+    J = np.asarray(J,dtype=p['dtype'])
+    d = res_func(p['m_o'])
+    d = np.asarray(d,dtype=p['dtype'])
 
   return p['m_o']
