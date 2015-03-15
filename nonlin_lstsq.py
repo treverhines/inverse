@@ -2,49 +2,11 @@
 import numpy as np
 import logging
 import solvers
+from converger import Converger
 from tikhonov import Perturb
 from tikhonov import tikhonov_matrix
 from inverse_misc import funtime
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
-##------------------------------------------------------------------------------
-class Converger:
-  def __init__(self,final,atol=0.01,rtol=0.01,norm=2):
-    self.atol = atol
-    self.rtol = rtol
-    self.norm = norm
-    self.final = np.asarray(final)
-    self.L2 = np.inf
-    return
-
-  def __call__(self,current):
-    current = np.asarray(current)
-    L2_new = np.linalg.norm(current - self.final,self.norm)    
-    if not np.isfinite(L2_new):
-      message = 'encountered invalid L2'
-      return 3,message
-
-    elif L2_new <= self.atol:
-      message = 'converged due to atol:          L2=%s' % L2_new
-      return 0,message
-
-    elif abs(L2_new - self.L2) <= self.rtol:
-      message = 'converged due to rtol:          L2=%s' % L2_new
-      return 0,message
-
-    elif L2_new < self.L2:
-      message = 'converging:                     L2=%s' % L2_new
-      return 1,message
-
-    elif (L2_new >= self.L2):
-      message = 'diverging:                      L2=%s' % L2_new
-      return 2,message
-
-  def set(self,current):
-    self.current = np.asarray(current)
-    self.L2 = np.linalg.norm(current - self.final,self.norm)    
-    return
 
 ##------------------------------------------------------------------------------
 def jacobian_fd(m_o,
@@ -100,8 +62,6 @@ def _residual(system,
   '''
   used for nonlin_lstsq
   '''  
-  data = np.asarray(data)
-  sigma = np.asarray(sigma)
   def residual_function(model):
     '''
     evaluates the function to be minimized for the given model
@@ -124,8 +84,8 @@ def _residual(system,
 
   return residual_function,residual_jacobian
 
+##------------------------------------------------------------------------------
 def _arg_parser(args,kwargs):
-  # define kwargs that do not default to None
   assert len(args) == 3, 'nonlin_lstsq takes exactly 3 positional arguments'
 
   p = {'solver':solvers.lstsq,
@@ -149,7 +109,7 @@ def _arg_parser(args,kwargs):
 
   p.update(kwargs)
   p['system'] = args[0]
-  p['data'] = args[1]  
+  p['data'] = np.asarray(args[1])
   p['m_o'] = args[2]
 
   # if the initial guess is an integer, then interpret it as length of the model
@@ -157,12 +117,16 @@ def _arg_parser(args,kwargs):
   if type(p['m_o']) == int:
     p['m_o'] = np.ones(p['m_o'])
 
+  p['m_o'] = np.asarray(p['m_o'])
+
   p['param_no'] = len(p['m_o'])
   p['data_no'] = len(p['data'])
 
   # if no uncertainty is given then assume it is ones.
   if p['sigma'] is None:
     p['sigma'] = np.ones(p['data_no'])
+
+  p['sigma'] = np.asarray(p['sigma'])
 
   if p['system_args'] is None:
     p['system_args'] = []
@@ -339,7 +303,6 @@ def nonlin_lstsq(*args,**kwargs):
     Out[25]: array([ 2., 5.])
 
   '''
-  maxlmitr = 50
   p = _arg_parser(args,kwargs)
  
   res_func,res_jac = _residual(p['system'],
@@ -358,33 +321,36 @@ def nonlin_lstsq(*args,**kwargs):
                    np.shape(p['regularization'])[0] +
                    np.shape(p['lm_matrix'])[0])
 
-  conv = Converger(final,atol=p['atol'],rtol=p['rtol'])
-  count = 0
+  conv = Converger(final,atol=p['atol'],rtol=p['rtol'],maxitr=p['maxitr'])
   status = None
 
   J = res_jac(p['m_o'])
   J = np.asarray(J,dtype=p['dtype'])
   d = res_func(p['m_o'])
   d = np.asarray(d,dtype=p['dtype'])
+
   assert np.all(np.isfinite(J)), ('non-finite value encountered in the initial '
                                   'Jacobian matrix.  Try using a different '
                                   'initial guess for the model parameters')
   assert np.all(np.isfinite(d)), ('non-finite value encountered in the initial '
                                   'predicted data vector.  Try using a different '
                                   'initial guess for the model parameters')
-  while not ((status == 0) | (status == 3) | (count == p['maxitr'])):
+
+  while not ((status == 0) | (status == 3)):
     m_new = p['solver'](J,-d+J.dot(p['m_o']),
                         *p['solver_args'],
                         **p['solver_kwargs'])
     d_new = res_func(m_new)
     status,message = conv(d_new)
-    logger.debug(message)
+    if status == 0:
+      logger.info(message)
+    else:
+      logger.debug(message)
     if (status == 1) and p['LM_damping']:
       logger.debug('decreasing LM parameter to %s' % p['LM_param'])
       p['lm_matrix'] /= p['LM_factor']
       p['LM_param'] /= p['LM_factor']
 
-    lmitr = 0
     while ((status == 2) | (status == 3)) and p['LM_damping']:
       logger.debug('increasing LM parameter to %s' % p['LM_param'])
       p['lm_matrix'] *= p['LM_factor']
@@ -398,20 +364,13 @@ def nonlin_lstsq(*args,**kwargs):
                           **p['solver_kwargs'])
       d_new = res_func(m_new)
       status,message = conv(d_new)      
-      logger.debug(message)
-      lmitr += 1
-      if lmitr == maxlmitr:
-        logger.debug('Levenberg-Marquardt step damping is not allowing the '
-                     'solution to converge.  This is likely resulting from '
-                     'bounds imposed by the solver')
-        logger.debug('Levenberg-Marquardt step damping is being turned off')
-        p['LM_damping'] = False
-
+      if status == 0:
+        logger.info(message)
+      else:
+        logger.debug(message)
+  
     p['m_o'] = m_new
     conv.set(d_new)
-    count += 1
-    if count == p['maxitr']:
-      logger.debug('converged due to maxitr')
 
     J = res_jac(p['m_o'])
     J = np.asarray(J,dtype=p['dtype'])

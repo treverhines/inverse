@@ -6,9 +6,14 @@ constraints on m.
 import numpy as np
 import scipy.optimize
 import pymls
+from converger import Converger
+import logging
+logger = logging.getLogger(__name__)
 
 def _arg_checker(fin):
   def fout(G,d,*args,**kwargs):
+    G = np.asarray(G)
+    d = np.asarray(d)
     G_shape = np.shape(G)  
     d_shape = np.shape(d)
     if len(d_shape) > 1:
@@ -81,4 +86,39 @@ def bounded_lstsq(G,d,lower_lim,upper_lim):
   out = np.squeeze(out)
   return out
 
+
+@_arg_checker
+def cgls(G,d,maxitr=20,rtol=1e-4,atol=1e-4):
+  '''
+  congugate gradient least squares
+
+  algorithm from Aster et al. 2005
+  '''
+  N,M = np.shape(G)
+  m_o = np.zeros(M)
+
+  s = d - G.dot(m_o)
+  p = np.zeros(M)
+  r = G.transpose().dot(d)
+  r_prev = np.zeros(M)
+  beta = 0
+
+  conv = Converger(np.zeros(N),atol=atol,rtol=rtol,maxitr=maxitr)
+  status = None
+  k = 0
+  while (status !=  0) & (status != 3):
+    if k > 0:
+      beta = r.dot(r)/r_prev.dot(r_prev)
+    p = r + beta*p
+    alpha = r.dot(r)/G.dot(p).transpose().dot(G.dot(p))
+    m_o = m_o + alpha*p
+    s = s - alpha*G.dot(p)
+    r_prev[:] = r
+    r = G.transpose().dot(s)
+    status,message = conv(s)
+    conv.set(s)
+    logger.debug(message)
+    k += 1
+
+  return m_o
 
