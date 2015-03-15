@@ -88,23 +88,25 @@ def bounded_lstsq(G,d,lower_lim,upper_lim):
 
 
 @_arg_checker
-def cgls(G,d,maxitr=20,rtol=1e-4,atol=1e-4):
+def cgls(G,d,m_o=None,maxitr=200,rtol=1e-4,atol=1e-4):
   '''
   congugate gradient least squares
 
   algorithm from Aster et al. 2005
   '''
   N,M = np.shape(G)
-  m_o = np.zeros(M)
+  if m_o is None:
+    m_o = np.zeros(M)
 
   s = d - G.dot(m_o)
   p = np.zeros(M)
-  r = G.transpose().dot(d)
+  r = G.transpose().dot(s)
   r_prev = np.zeros(M)
   beta = 0
 
   conv = Converger(np.zeros(N),atol=atol,rtol=rtol,maxitr=maxitr)
-  status = None
+  status,message = conv(s)
+  logger.debug(message)
   k = 0
   while (status !=  0) & (status != 3):
     if k > 0:
@@ -121,4 +123,37 @@ def cgls(G,d,maxitr=20,rtol=1e-4,atol=1e-4):
     k += 1
 
   return m_o
+
+class _Cgls(object):
+  '''
+  an instance of this class behaves like the function cgls except that 
+  in the absence of an initial m_o, the m_o returned from the preivious
+  call is used.  If the function was not called before then m_o is a 
+  vector of zeros.  This is very useful for a nonlinear least squares 
+  algorithm.
+  '''
+  def __init__(self):
+    self.m_o = None
+
+  def __call__(self,*args,**kwargs):    
+    if self.m_o is None:
+      self.m_o = cgls(*args,**kwargs)
+    else:
+      m_o = kwargs.pop('m_o',self.m_o)
+      self.m_o = cgls(*args,m_o=m_o,**kwargs)
+    return self.m_o
+
+_cgls_instance = _Cgls()
+@_arg_checker
+def cgls_state(*args,**kwargs):
+  '''
+  conjugate gradient solver with state
+
+  behaves exactly as cgls except if this function has been called 
+  previously in the current python session then the default m_o is 
+  changed to the output from the previous call. 
+  
+  The 'state' is stored in the callable instance '_cgls_instance'
+  '''
+  return _cgls_instance(*args,**kwargs)
 
