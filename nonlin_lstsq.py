@@ -313,6 +313,11 @@ def nonlin_lstsq(*args,**kwargs):
   further constrains the problem with a first order tikhonov regularization 
   matrix scaled by a penalty parameter of 0.001.  The null space in this 
   case is anywhere that the product of m[0] and m[1] is the same.  The 
+  what seperates nonlin_lstsq from other nonlinear solvers is its ability to
+  easily add regularization constraints to illposed problems.  The following 
+  further constrains the problem with a first order tikhonov regularization 
+  matrix scaled by a penalty parameter of 0.001.  The null space in this 
+  case is anywhere that the product of m[0] and m[1] are the same.  The 
   added regularization requires that m[0] = m[1].
  
     In [123]: def system(m,x):
