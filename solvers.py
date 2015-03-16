@@ -86,9 +86,8 @@ def bounded_lstsq(G,d,lower_lim,upper_lim):
   out = np.squeeze(out)
   return out
 
-
 @_arg_checker
-def cgls(G,d,m_o=None,maxitr=200,rtol=1e-4,atol=1e-4):
+def cgls(G,d,m_o=None,maxitr=2000,rtol=1e-6,atol=1e-6):
   '''
   congugate gradient least squares
 
@@ -100,7 +99,7 @@ def cgls(G,d,m_o=None,maxitr=200,rtol=1e-4,atol=1e-4):
 
   s = d - G.dot(m_o)
   p = np.zeros(M)
-  r = G.transpose().dot(s)
+  r = s.dot(G)
   r_prev = np.zeros(M)
   beta = 0
 
@@ -112,11 +111,14 @@ def cgls(G,d,m_o=None,maxitr=200,rtol=1e-4,atol=1e-4):
     if k > 0:
       beta = r.dot(r)/r_prev.dot(r_prev)
     p = r + beta*p
-    alpha = r.dot(r)/G.dot(p).transpose().dot(G.dot(p))
+    Gp = G.dot(p)
+    alpha = r.dot(r)/Gp.dot(Gp)
+    #print('hi')
+    #alpha = r.dot(r)/Gp.dot(Gp)
     m_o = m_o + alpha*p
-    s = s - alpha*G.dot(p)
+    s = s - alpha*Gp
     r_prev[:] = r
-    r = G.transpose().dot(s)
+    r = s.dot(G)
     status,message = conv(s)
     conv.set(s)
     logger.debug(message)
