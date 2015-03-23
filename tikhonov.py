@@ -84,6 +84,7 @@ class IndexEnumerate:
       self.itr += 1
       return (idx,self.C[tuple(idx)])
 
+##------------------------------------------------------------------------------
 class Neighbors(IndexEnumerate):
   '''
   Iterator that Loops over elements in array C returning the element and its  
@@ -130,19 +131,14 @@ def _tikhonov_first_order(C,L):
   '''
   shape = np.shape(C)
   Lrow = 0
-  for idx,val in IndexEnumerate(C):
-    if val == -1:
+  for neighbors,i in Neighbors(C,'forward'):
+    if i == -1:
       continue
-    for idx_pert in Perturb(idx,1):
-      if any(idx_pert >= shape):
-        continue      
-
-      val_pert = C[tuple(idx_pert)]            
-      if val_pert == -1:
+    for k in neighbors:
+      if k == -1:
         continue
-
-      L[Lrow,val] += -1  
-      L[Lrow,val_pert] +=  1
+      L[Lrow,i] += -1
+      L[Lrow,k] += 1
       Lrow += 1
 
   return L 
@@ -153,27 +149,16 @@ def _tikhonov_second_order(C,L):
   used in tikhonov_matrix
   '''
   shape = np.shape(C)
-  for idx,val in IndexEnumerate(C):
-    if val == -1:
+  for neighbors,i in Neighbors(C,'all'):
+    if i == -1:
       continue
-    for idx_pert in Perturb(idx,1):
-      if any(idx_pert >= shape) | any(idx_pert < 0):
+    order = sum(neighbors != -1)
+    for k in neighbors:
+      if k == -1:
         continue
-      val_pert = C[tuple(idx_pert)]      
-      if val_pert == -1:
-        continue
-      L[val,val] += -1  
-      L[val,val_pert]  +=  1
-    
-    for idx_pert in Perturb(idx,-1):
-      if any(idx_pert >= shape) | any(idx_pert < 0):
-        continue
-      val_pert = C[tuple(idx_pert)]      
-      if val_pert == -1:
-        continue
-      L[val,val] += -1  
-      L[val,val_pert]  +=  1
-       
+      L[i,i] += -1.0/order  
+      L[i,k]  +=  1.0/order
+
   return L
 
 ## Tikhonov matrix
