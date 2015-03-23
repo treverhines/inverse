@@ -68,7 +68,7 @@ class IndexEnumerate:
     idx: [1, 0], val: 3
     idx: [1, 1], val: 4
     '''
-    self.C = C
+    self.C = np.asarray(C)
     self.shape = np.shape(C)
     self.size = np.size(C)
     self.itr = 0
@@ -83,6 +83,33 @@ class IndexEnumerate:
       idx = _linear_to_array_index(self.itr,self.shape)
       self.itr += 1
       return (idx,self.C[tuple(idx)])
+
+class Neighbors(IndexEnumerate):
+  '''
+  Iterator that Loops over elements in array C returning the element and its  
+  neighbors
+  '''
+  def __init__(self,C,search='all'):
+    IndexEnumerate.__init__(self,C)
+    assert search in ['all','forward','backward']
+    self.search = search
+
+  def next(self):
+    idx,val = IndexEnumerate.next(self)
+    neighbors = np.zeros(0,dtype=int)
+    if (self.search == 'all') | (self.search == 'forward'):
+      for idx_pert in Perturb(idx,1):
+        if any(idx_pert >= self.shape):
+          continue
+        neighbors = np.append(neighbors,self.C[tuple(idx_pert)])
+
+    if (self.search == 'all') | (self.search == 'backward'):
+      for idx_pert in Perturb(idx,-1):
+        if any(idx_pert < 0):
+          continue
+        neighbors = np.append(neighbors,self.C[tuple(idx_pert)])
+    
+    return neighbors,val
 
 ##------------------------------------------------------------------------------
 def _tikhonov_zeroth_order(C,L):
@@ -137,7 +164,7 @@ def _tikhonov_second_order(C,L):
         continue
       L[val,val] += -1  
       L[val,val_pert]  +=  1
-
+    
     for idx_pert in Perturb(idx,-1):
       if any(idx_pert >= shape) | any(idx_pert < 0):
         continue

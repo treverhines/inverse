@@ -8,6 +8,7 @@ import scipy.optimize
 import pymls
 from converger import Converger
 import logging
+from inverse_misc import funtime
 logger = logging.getLogger(__name__)
 
 def _arg_checker(fin):
@@ -31,6 +32,8 @@ def _arg_checker(fin):
   fout.__name__ = fin.__name__
   return fout
 
+
+@funtime
 @_arg_checker
 def lstsq(G,d,*args,**kwargs):
   '''                                     
@@ -39,6 +42,7 @@ def lstsq(G,d,*args,**kwargs):
   out = scipy.linalg.lstsq(G,d,*args,**kwargs)[0]
   return out
 
+@funtime
 @_arg_checker
 def nnls(G,d,*args,**kwargs):
   '''               
@@ -47,6 +51,7 @@ def nnls(G,d,*args,**kwargs):
   out = scipy.optimize.nnls(G,d,*args,**kwargs)[0]
   return out
 
+@funtime
 @_arg_checker
 def bounded_lstsq(G,d,lower_lim,upper_lim):
   '''
@@ -86,8 +91,9 @@ def bounded_lstsq(G,d,lower_lim,upper_lim):
   out = np.squeeze(out)
   return out
 
+@funtime
 @_arg_checker
-def cgls(G,d,m_o=None,maxitr=2000,rtol=1e-6,atol=1e-6):
+def cgls(G,d,m_o=None,maxitr=2000,rtol=1e-8,atol=1e-8):
   '''
   congugate gradient least squares
 
@@ -140,12 +146,14 @@ class _Cgls(object):
   def __call__(self,*args,**kwargs):    
     if self.m_o is None:
       self.m_o = cgls(*args,**kwargs)
+      #self.m_o = lstsq(*args,**kwargs)
     else:
       m_o = kwargs.pop('m_o',self.m_o)
       self.m_o = cgls(*args,m_o=m_o,**kwargs)
     return self.m_o
 
 _cgls_instance = _Cgls()
+
 @_arg_checker
 def cgls_state(*args,**kwargs):
   '''
