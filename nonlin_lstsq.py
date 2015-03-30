@@ -107,6 +107,10 @@ def _arg_parser(args,kwargs):
        'regularization':None,
        'dtype':None}
 
+  for key,val in kwargs.iteritems():
+    assert key in p.keys(), (
+      'invalid keyword argument for nonlin_lstsq(): %s' % key)
+
   p.update(kwargs)
   p['system'] = args[0]
   p['data'] = np.asarray(args[1])
