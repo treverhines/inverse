@@ -86,6 +86,7 @@ def _residual(system,
 
 ##------------------------------------------------------------------------------
 def _arg_parser(args,kwargs):
+  '''parses and checks arguments for nonlin_lstsq()'''
   assert len(args) == 3, 'nonlin_lstsq takes exactly 3 positional arguments'
 
   p = {'solver':solvers.lstsq,
@@ -105,6 +106,7 @@ def _arg_parser(args,kwargs):
        'solver_kwargs':None,
        'data_indices':None,
        'regularization':None,
+       'lm_matrix':None,
        'dtype':None}
 
   for key,val in kwargs.iteritems():
@@ -123,12 +125,9 @@ def _arg_parser(args,kwargs):
 
   p['m_o'] = np.asarray(p['m_o'])
 
-  p['param_no'] = len(p['m_o'])
-  p['data_no'] = len(p['data'])
-
   # if no uncertainty is given then assume it is ones.
   if p['sigma'] is None:
-    p['sigma'] = np.ones(p['data_no'])
+    p['sigma'] = np.ones(len(p['data']))
 
   p['sigma'] = np.asarray(p['sigma'])
 
@@ -160,7 +159,7 @@ def _arg_parser(args,kwargs):
   # default to assuming all data will be used.  This functionality is added for
   # to make cross validation easier
   if p['data_indices'] is None:
-    p['data_indices'] = range(p['data_no'])
+    p['data_indices'] = range(len(p['data']))
 
   # if regularization is a array or tuple of length 2 then assume it describes
   # the regularization order and the penalty parameter then create the
@@ -168,21 +167,29 @@ def _arg_parser(args,kwargs):
   if np.shape(p['regularization'])==(2,):
     order = p['regularization'][0]
     mag = p['regularization'][1]
-    p['regularization'] = mag*tikhonov_matrix(range(p['param_no']),order)
+    p['regularization'] = mag*tikhonov_matrix(range(len(p['m_o'])),order)
 
   if p['regularization'] is None:
-    p['regularization'] = np.zeros((0,p['param_no']))
+    p['regularization'] = np.zeros((0,len(p['m_o'])))
 
   # if regularization is given as a sparse matrix and unsparsify it
   if hasattr(p['regularization'],'todense'):
     p['regularization'] = np.array(p['regularization'].todense())
+ 
+  assert len(np.shape(p['regularization'])) == 2, (
+    'regularization must be 2-D array or length 2 array')
+
+  assert np.shape(p['regularization'])[1] == len(p['m_o']), (
+    'second axis for the regularization matrix must have length equal to the '
+    'number of model parameters')
 
   if p['LM_damping']:
     assert p['LM_param'] > 0.0,('Levenberg-Marquardt parameter must be greater '
                                 'than 0.0')
-    p['lm_matrix'] = p['LM_param']*np.eye(p['param_no'])
+
+    p['lm_matrix'] = p['LM_param']*np.eye(len(p['m_o']))
   else:
-    p['lm_matrix'] = np.zeros((0,p['param_no']))
+    p['lm_matrix'] = np.zeros((0,len(p['m_o'])))
 
   return p
 

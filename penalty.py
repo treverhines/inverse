@@ -7,33 +7,41 @@ from nonlin_lstsq import _arg_parser
 from inverse_misc import divide_list
 logger = logging.getLogger(__name__)
 
-def _parser(args,kwargs):
-  '''
-  parses args and kwargs that are used for nonlin_lstsq
-  ''' 
-  data_no = len(args[1])
-  if type(args[2]) == int:
-    m_no = np.ones(args[2])
-  else:
-    m_no = len(args[2])
-  arguments = {'system':args[0],
-               'data':args[1],
-               'm_o':args[2],
-               'data_no':data_no,
-               'm_no':m_no,
-               'regularization':kwargs.get('regularization'),
-               'sigma':kwargs.get('sigma',np.ones(data_no)),
-               'system_args':kwargs.get('system_args',()),
-               'system_kwargs':kwargs.get('system_kwargs',{}),
-               'jacobian':kwargs.get('jacobian',jacobian_fd),
-               'jacobian_args':kwargs.get('jacobian_args',()),
-               'jacobian_kwargs':kwargs.get('jacobian_kwargs',{})}
 
-  if arguments['jacobian'] == jacobian_fd:
-    arguments['jacobian_args'] = (arguments['system'],)
-    arguments['jacobian_kwargs'] = {'system_args':arguments['system_args'],
-                                    'system_kwargs':arguments['system_kwargs']}    
-  return arguments
+def Lcurve(penalty_range,*args,**kwargs):
+  '''
+  function in progress
+  '''
+  p = _arg_parser(args,kwargs)
+  system = p.pop('system')
+  data = p.pop('data')
+  m_o = p.pop('m_o')
+
+  penalty_range = np.asarray(penalty_range)
+  L2res = np.zeros(len(penalty_range))
+  L2Lm = np.zeros(len(penalty_range))
+
+  regularization = p.pop('regularization')
+  for itr,penalty in enumerate(penalty_range):
+    scaled_regularization = penalty*regularization
+    m_pred = nonlin_lstsq(system,
+                        data,
+                        m_o,
+                        regularization=scaled_regularization,
+                        **p)
+    data_pred = system(m_pred,
+                       *p['system_args'],
+                       **p['system_kwargs'])
+
+    res = (data_pred - data)/p['sigma']
+    Lm = regularization.dot(m_pred)  
+    L2res[itr] = res.dot(res)  
+    L2Lm[itr] = Lm.dot(Lm)  
+
+  return {'penalty':penalty_range,
+          'L2res':L2res,
+          'L2Lm':L2Lm}
+
 
 def CV(penalty_range,*args,**kwargs):
   '''
@@ -147,8 +155,8 @@ def KFCV(K,penalty_range,*args,**kwargs):
 
   L2_list = np.zeros(len(penalty_range))
   regularization = p.pop('regularization')
-  groups = divide_list(np.random.choice(p['data_no'],
-                                        p['data_no'],
+  groups = divide_list(np.random.choice(len(data),
+                                        len(data),
                                         replace=False),K)
   for itr,penalty in enumerate(penalty_range):
     scaled_regularization = penalty*regularization
@@ -164,12 +172,12 @@ def LOOCV_step(*args,**kwargs):
   m_o = p.pop('m_o')
   p.pop('data_indices')
 
-  residual = np.zeros(p['data_no'])
+  residual = np.zeros(len(data))
   # loop over data indices to leave out
-  for idx in range(p['data_no']):
+  for idx in range(len(data)):
     # data_indices consists of all data indices which are not 
     # left out of the inversion
-    data_indices = range(p['data_no'])
+    data_indices = range(len(data))
     data_indices.remove(idx)
     # predicted model parameters with excluded data
     m_pred = nonlin_lstsq(system,
@@ -222,8 +230,8 @@ def GCV_step(*args,**kwargs):
   # this is evaluating the formula from Aster et. al 2005.
   # There is the one notable difference that I am NOT normalizing by the 
   # number of data points
-  num = p['data_no']**2*(residual.dot(residual))
-  den = np.trace(np.eye(p['data_no']) - jac.dot(jac_inv))**2
+  num = len(data)**2*(residual.dot(residual))
+  den = np.trace(np.eye(len(data)) - jac.dot(jac_inv))**2
   return num/den
 
 def KFCV_step(groups,*args,**kwargs):
@@ -233,10 +241,10 @@ def KFCV_step(groups,*args,**kwargs):
   m_o = p.pop('m_o')
   p.pop('data_indices')
 
-  residual = np.zeros(p['data_no'])
+  residual = np.zeros(len(data))
   for indices in groups:
     # find data indices which are not in 'indices'
-    data_indices = [i for i in range(p['data_no']) if not i in indices]
+    data_indices = [i for i in range(len(data)) if not i in indices]
     m_pred = nonlin_lstsq(system,
                           data,
                           m_o,
@@ -250,6 +258,7 @@ def KFCV_step(groups,*args,**kwargs):
     residual[indices] /= p['sigma'][indices] 
   L2 = residual.dot(residual)
   return L2
+
 
 ##------------------------------------------------------------------------------
 def cross_validate(exclude_groups,*args,**kwargs):

@@ -24,6 +24,8 @@ def test_forward(m,N=100,noise=None):
 
     u(x_i) = m1_j*F_j(x_i) + m1_j*m2_k*G_jk(x_i),
 
+
+  I will come up with a better test problem later
   '''
   out = np.zeros(N)
   x = np.linspace(0.1,20,N)
