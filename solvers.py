@@ -5,6 +5,7 @@ constraints on m.
 '''
 import numpy as np
 import scipy.optimize
+import scipy.sparse.linalg
 import pymls
 from converger import Converger
 import logging
@@ -93,7 +94,7 @@ def bounded_lstsq(G,d,lower_lim,upper_lim):
 
 @funtime
 @_arg_checker
-def cgls(G,d,m_o=None,maxitr=2000,rtol=1e-8,atol=1e-8):
+def cgls(G,d,m_o=None,maxitr=2000,rtol=1e-16,atol=1e-16):
   '''
   congugate gradient least squares
 
@@ -132,6 +133,35 @@ def cgls(G,d,m_o=None,maxitr=2000,rtol=1e-8,atol=1e-8):
 
   return m_o
 
+@funtime
+@_arg_checker
+def cg(G,d,*args,**kwargs):
+  '''
+  solves GtG = Gtd using scipy's cg solver. This tends to be
+  about as fast as cgls
+  '''
+  GtG = G.transpose().dot(G)
+  Gtd = G.transpose().dot(d)
+  return scipy.sparse.linalg.cg(GtG,Gtd,tol=1e-16,*args,**kwargs)[0]
+
+
+class _Cg(object):
+  def __init__(self):
+    self.x0 = None
+    self.M = None
+
+  def __call__(self,G,d):
+    if self.M is None:
+      self.M = np.linalg.inv(G.transpose().dot(G))
+
+    if self.x0 is None:
+      self.x0 = cg(G,d,M=self.M)
+  
+    else:
+      self.x0 = cg(G,d,M=self.M,x0=self.x0)
+
+    return self.x0
+
 class _Cgls(object):
   '''
   an instance of this class behaves like the function cgls except that 
@@ -153,6 +183,7 @@ class _Cgls(object):
     return self.m_o
 
 _cgls_instance = _Cgls()
+_cg_instance = _Cg()
 
 @_arg_checker
 def cgls_state(*args,**kwargs):
@@ -167,3 +198,6 @@ def cgls_state(*args,**kwargs):
   '''
   return _cgls_instance(*args,**kwargs)
 
+@_arg_checker
+def cg_state(*args,**kwargs):
+  return _cg_instance(*args,**kwargs)
