@@ -6,6 +6,7 @@ constraints on m.
 import numpy as np
 import scipy.optimize
 import scipy.sparse.linalg
+import scipy.linalg
 import pymls
 from converger import Converger
 import logging
