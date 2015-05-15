@@ -56,6 +56,7 @@ def jacobian_fd(m_o,
   return Jac
 
 ##------------------------------------------------------------------------------
+@funtime
 def covariance_to_weight(C):
   '''returns the weight matrix, W, which satisfies
 
@@ -70,15 +71,25 @@ def covariance_to_weight(C):
      is not unique, but since The solution for any least squares 
      problem depends on C, rather than W, any value of W 'should' do 
      just fine as long as it satisfies (1).
+  
+     Notes
+     -----
+
+     This function is SLOW
+
   '''
+  N = np.shape(C)[0]
   A = np.linalg.cholesky(C)
-  W = np.linalg.inv(A)
+  W = scipy.linalg.solve_triangular(A,np.eye(N),lower=True)
+
   return W
   
 ##------------------------------------------------------------------------------
 def _residual(system,
                data,
-               weight,
+               data_weight,
+               prior,
+               prior_weight,
                system_args,
                system_kwargs,
                jacobian,
@@ -96,24 +107,26 @@ def _residual(system,
     evaluates the function to be minimized for the given model
     '''
     pred = system(model,*system_args,**system_kwargs)
-    res = weight.dot(pred - data)
+    res = data_weight.dot(pred - data)
     res = res[data_indices]
     reg = reg_matrix.dot(model)    
     lm = np.zeros(np.shape(lm_matrix)[0])
-    return np.hstack((res,reg,lm))
+    bayes = prior_weight.dot(model - prior)
+    return np.hstack((res,reg,lm,bayes))
 
   def residual_jacobian(model):
     '''
     evaluates the jacobian of the objective function at the given model
     '''
     jac = jacobian(model,*jacobian_args,**jacobian_kwargs)
-    jac = weight.dot(jac)
+    jac = data_weight.dot(jac)
     jac = jac[data_indices,:]
-    return np.vstack((jac,reg_matrix,lm_matrix))
+    return np.vstack((jac,reg_matrix,lm_matrix,prior_weight))
 
   return residual_function,residual_jacobian
 
 ##------------------------------------------------------------------------------
+@funtime
 def _arg_parser(args,kwargs):
   '''parses and checks arguments for nonlin_lstsq()'''
   assert len(args) == 3, 'nonlin_lstsq takes exactly 3 positional arguments'
@@ -125,7 +138,8 @@ def _arg_parser(args,kwargs):
        'maxitr':50,
        'rtol':1.0e-4,
        'atol':1.0e-4,
-       'uncertainty':None,
+       'data_uncertainty':None,
+       'prior_uncertainty':None,
        'system_args':None,
        'system_kwargs':None,
        'jacobian':None,
@@ -145,29 +159,46 @@ def _arg_parser(args,kwargs):
   p.update(kwargs)
   p['system'] = args[0]
   p['data'] = np.asarray(args[1])
-  p['m_o'] = args[2]
+  p['m_k'] = args[2]
 
   # if the initial guess is an integer, then interpret it as length of the model
   # parameter vector and assume ones as the initial guess
-  if type(p['m_o']) == int:
-    p['m_o'] = np.ones(p['m_o'])
+  if type(p['m_k']) == int:
+    p['m_k'] = np.ones(p['m_k'])
 
-  p['m_o'] = np.asarray(p['m_o'])
+  p['m_k'] = np.asarray(p['m_k'])
+  p['prior'] = np.copy(p['m_k'])
 
   # if no uncertainty is given then assume standard deviation of 1
-  if p['uncertainty'] is None:
-    p['weight'] = np.eye(len(p['data']))
+  if p['data_uncertainty'] is None:
+    p['data_weight'] = np.eye(len(p['data']))
 
   # if a vector is given then interpret the values as uncorrelated
   # standard deviations
-  elif len(np.shape(p['uncertainty'])) == 1:
-    sig = np.asarray(p['uncertainty'])
-    p['weight'] = np.diag(1.0/sig)
+  elif len(np.shape(p['data_uncertainty'])) == 1:
+    sig = np.asarray(p['data_uncertainty'])
+    p['data_weight'] = np.diag(1.0/sig)
 
   # if a matrix is given then interpret it as a covariance matrix
-  elif len(np.shape(p['uncertainty'])) == 2:
-    cov = np.asarray(p['uncertainty'])
-    p['weight'] = covariance_to_weight(cov)
+  elif len(np.shape(p['data_uncertainty'])) == 2:
+    cov = np.asarray(p['data_uncertainty'])
+    p['data_weight'] = covariance_to_weight(cov)
+
+  # if no prior uncertainty is given, then the prior has no influence
+  # on the final solution 
+  if p['prior_uncertainty'] is None:
+    p['prior_weight'] = np.zeros((0,len(p['m_k'])))
+
+  # if a vector is given then interpret the values as uncorrelated
+  # standard deviations
+  elif len(np.shape(p['prior_uncertainty'])) == 1:
+    sig = np.asarray(p['prior_uncertainty'])
+    p['prior_weight'] = np.diag(1.0/sig)
+
+  # if a matrix is given then interpret it as a covariance matrix
+  elif len(np.shape(p['prior_uncertainty'])) == 2:
+    cov = np.asarray(p['prior_uncertainty'])
+    p['prior_weight'] = covariance_to_weight(cov)
 
   if p['system_args'] is None:
     p['system_args'] = []
@@ -205,10 +236,10 @@ def _arg_parser(args,kwargs):
   if np.shape(p['regularization'])==(2,):
     order = p['regularization'][0]
     mag = p['regularization'][1]
-    p['regularization'] = mag*tikhonov_matrix(range(len(p['m_o'])),order)
+    p['regularization'] = mag*tikhonov_matrix(range(len(p['m_k'])),order)
 
   if p['regularization'] is None:
-    p['regularization'] = np.zeros((0,len(p['m_o'])))
+    p['regularization'] = np.zeros((0,len(p['m_k'])))
 
   # if regularization is given as a sparse matrix and unsparsify it
   if hasattr(p['regularization'],'todense'):
@@ -217,7 +248,7 @@ def _arg_parser(args,kwargs):
   assert len(np.shape(p['regularization'])) == 2, (
     'regularization must be 2-D array or length 2 array')
 
-  assert np.shape(p['regularization'])[1] == len(p['m_o']), (
+  assert np.shape(p['regularization'])[1] == len(p['m_k']), (
     'second axis for the regularization matrix must have length equal to the '
     'number of model parameters')
 
@@ -225,9 +256,9 @@ def _arg_parser(args,kwargs):
     assert p['LM_param'] > 0.0,('Levenberg-Marquardt parameter must be greater '
                                 'than 0.0')
 
-    p['lm_matrix'] = p['LM_param']*np.eye(len(p['m_o']))
+    p['lm_matrix'] = p['LM_param']*np.eye(len(p['m_k']))
   else:
-    p['lm_matrix'] = np.zeros((0,len(p['m_o'])))
+    p['lm_matrix'] = np.zeros((0,len(p['m_k'])))
 
   return p
 
@@ -244,15 +275,14 @@ def nonlin_lstsq(*args,**kwargs):
       parameters and the remaining arguments are system args and
       system kwargs
 
-    data: vector of data values (N,)
+    data: (N,) vector of data values
 
-    m_o: vector of model parameter initial guesses.  
+    prior: (M,) vector of model parameter initial guesses. 
 
                         OR
 
       an integer specifying the number of model parameters.  If an
       integer is provided then the initial guess is a vector of ones
-      (M,)
 
   **kwargs 
   --------
@@ -270,6 +300,7 @@ def nonlin_lstsq(*args,**kwargs):
 
     jacobian_args: arguments to be passed to the jacobian function 
       (default: None)
+
     jacobian_kwargs: key word arguments to be passed to the jacobian
       function (default: None)
 
@@ -288,14 +319,23 @@ def nonlin_lstsq(*args,**kwargs):
     solver_kwargs: additional key word arguments for the solver 
       (default: None)
 
-    uncertainty: Vector of one standard deviation uncertainties for
-      each data value.  This should be used if the data is assumed to
-      be uncorrelated
+    data_uncertainty: Vector of one standard deviation uncertainties
+      for each data value.  This should be used if the data is assumed
+      to be uncorrelated
 
                         OR
 
       data covariance matrix.  This can any square array (sparse or
       dense) as long as it has the 'dot' method (default: np.eye(N))
+
+    prior_uncertainty: Vector of one standard deviation uncertainties
+      for each prior value.  This should be used if the prior is assumed
+      to be uncorrelated
+
+                        OR
+
+      prior covariance matrix.  This can any square array (sparse or
+      dense) as long as it has the 'dot' method (default: np.eye(M))
 
 
 
@@ -367,13 +407,8 @@ def nonlin_lstsq(*args,**kwargs):
   problems.  The following further constrains the problem with a first
   order tikhonov regularization matrix scaled by a penalty parameter
   of 0.001.  The null space in this case is anywhere that the product
-  of m[0] and m[1] is the same.  The what seperates nonlin_lstsq from
-  other nonlinear solvers is its ability to easily add regularization
-  constraints to illposed problems.  The following further constrains
-  the problem with a first order tikhonov regularization matrix scaled
-  by a penalty parameter of 0.001.  The null space in this case is
-  anywhere that the product of m[0] and m[1] is the same.  The added
-  regularization requires that m[0] = m[1].
+  of m[0] and m[1] is the same. The added regularization requires that
+  m[0] = m[1].
  
     In [123]: def system(m,x):
         return m[0]*m[1]*x
@@ -398,7 +433,9 @@ def nonlin_lstsq(*args,**kwargs):
  
   res_func,res_jac = _residual(p['system'],
                                p['data'],
-                               p['weight'],
+                               p['data_weight'],
+                               p['prior'],
+                               p['prior_weight'],
                                p['system_args'],
                                p['system_kwargs'],
                                p['jacobian'],
@@ -408,16 +445,14 @@ def nonlin_lstsq(*args,**kwargs):
                                p['lm_matrix'],
                                p['data_indices'])
 
-  final = np.zeros(len(p['data_indices']) +
-                   np.shape(p['regularization'])[0] +
-                   np.shape(p['lm_matrix'])[0])
+  final = np.zeros(len(res_func(p['m_k'])))
 
   conv = Converger(final,atol=p['atol'],rtol=p['rtol'],maxitr=p['maxitr'])
   status = None
 
-  J = res_jac(p['m_o'])
+  J = res_jac(p['m_k'])
   J = np.asarray(J,dtype=p['dtype'])
-  d = res_func(p['m_o'])
+  d = res_func(p['m_k'])
   d = np.asarray(d,dtype=p['dtype'])
 
   assert np.all(np.isfinite(J)), ('non-finite value encountered in the initial '
@@ -428,7 +463,7 @@ def nonlin_lstsq(*args,**kwargs):
                                   'initial guess for the model parameters')
 
   while not ((status == 0) | (status == 3)):
-    m_new = p['solver'](J,-d+J.dot(p['m_o']),
+    m_new = p['solver'](J,-d+J.dot(p['m_k']),
                         *p['solver_args'],
                         **p['solver_kwargs'])
     d_new = res_func(m_new)
@@ -446,11 +481,11 @@ def nonlin_lstsq(*args,**kwargs):
       logger.debug('increasing LM parameter to %s' % p['LM_param'])
       p['lm_matrix'] *= p['LM_factor']
       p['LM_param'] *= p['LM_factor']
-      J = res_jac(p['m_o'])
+      J = res_jac(p['m_k'])
       J = np.asarray(J,dtype=p['dtype'])
-      d = res_func(p['m_o'])
+      d = res_func(p['m_k'])
       d = np.asarray(d,dtype=p['dtype'])
-      m_new = p['solver'](J,-d+J.dot(p['m_o']),
+      m_new = p['solver'](J,-d+J.dot(p['m_k']),
                           *p['solver_args'],
                           **p['solver_kwargs'])
       d_new = res_func(m_new)
@@ -460,12 +495,12 @@ def nonlin_lstsq(*args,**kwargs):
       else:
         logger.debug(message)
   
-    p['m_o'] = m_new
+    p['m_k'] = m_new
     conv.set(d_new)
 
-    J = res_jac(p['m_o'])
+    J = res_jac(p['m_k'])
     J = np.asarray(J,dtype=p['dtype'])
-    d = res_func(p['m_o'])
+    d = res_func(p['m_k'])
     d = np.asarray(d,dtype=p['dtype'])
 
-  return p['m_o']
+  return p['m_k']

@@ -27,13 +27,13 @@ penalty_range = np.power(10.0,np.linspace(-1,3,50))
 
 class Test(unittest.TestCase):
   def test_CV(self):
-    pred = inverse.GCV(penalty_range,f_nonunique,data,M,uncertainty=sigma,system_args=(x,),regularization=reg)
+    pred = inverse.GCV(penalty_range,f_nonunique,data,M,data_uncertainty=sigma,system_args=(x,),regularization=reg)
     best_pred_GCV = penalty_range[np.argmin(pred)]
 
-    pred = inverse.CV(penalty_range,f_nonunique,data,M,uncertainty=sigma,system_args=(x,),regularization=reg)
+    pred = inverse.CV(penalty_range,f_nonunique,data,M,data_uncertainty=sigma,system_args=(x,),regularization=reg)
     best_pred_CV = penalty_range[np.argmin(pred)]
 
-    pred = inverse.KFCV(N,penalty_range,f_nonunique,data,M,uncertainty=sigma,system_args=(x,),regularization=reg)
+    pred = inverse.KFCV(N,penalty_range,f_nonunique,data,M,data_uncertainty=sigma,system_args=(x,),regularization=reg)
     best_pred_KFCV = penalty_range[np.argmin(pred)]
 
     self.assertTrue(np.abs(best_pred_GCV - best_pred_CV) < tol)

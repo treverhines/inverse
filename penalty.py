@@ -15,8 +15,10 @@ def Lcurve(penalty_range,*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
-  weight = p.pop('weight')
-  m_o = p.pop('m_o')
+  weight = p.pop('data_weight')
+  m_k = p.pop('m_k')
+  p.pop('prior_weight')
+  p.pop('prior')
 
   penalty_range = np.asarray(penalty_range)
   L2res = np.zeros(len(penalty_range))
@@ -27,7 +29,7 @@ def Lcurve(penalty_range,*args,**kwargs):
     scaled_regularization = penalty*regularization
     m_pred = nonlin_lstsq(system,
                         data,
-                        m_o,
+                        m_k,
                         regularization=scaled_regularization,
                         **p)
     data_pred = system(m_pred,
@@ -70,15 +72,17 @@ def CV(penalty_range,*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
-  m_o = p.pop('m_o')
-  p.pop('weight') 
+  m_k = p.pop('m_k')
+  p.pop('data_weight') 
   p.pop('data_indices')
+  p.pop('prior_weight')
+  p.pop('prior')
 
   L2_list = np.zeros(len(penalty_range))
   regularization = p.pop('regularization')
   for itr,penalty in enumerate(penalty_range):
     scaled_regularization = penalty*regularization
-    L2_list[itr] = LOOCV_step(system,data,m_o,
+    L2_list[itr] = LOOCV_step(system,data,m_k,
                               regularization=scaled_regularization,
                               **p)
   return L2_list
@@ -109,15 +113,17 @@ def GCV(penalty_range,*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
-  m_o = p.pop('m_o')
-  p.pop('weight')
+  m_k = p.pop('m_k')
+  p.pop('data_weight')
   p.pop('data_indices')
+  p.pop('prior_weight')
+  p.pop('prior')
 
   L2_list = np.zeros(len(penalty_range))
   regularization = p.pop('regularization')
   for itr,penalty in enumerate(penalty_range):
     scaled_regularization = penalty*regularization
-    L2_list[itr] = GCV_step(system,data,m_o,
+    L2_list[itr] = GCV_step(system,data,m_k,
                             regularization=scaled_regularization,
                             **p)
   return L2_list
@@ -153,9 +159,11 @@ def KFCV(K,penalty_range,*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
-  m_o = p.pop('m_o')
-  p.pop('weight')
+  m_k = p.pop('m_k')
+  p.pop('data_weight')
   p.pop('data_indices')
+  p.pop('prior_weight')
+  p.pop('prior')
 
   L2_list = np.zeros(len(penalty_range))
   regularization = p.pop('regularization')
@@ -164,7 +172,7 @@ def KFCV(K,penalty_range,*args,**kwargs):
                                         replace=False),K)
   for itr,penalty in enumerate(penalty_range):
     scaled_regularization = penalty*regularization
-    L2_list[itr] = KFCV_step(groups,system,data,m_o,
+    L2_list[itr] = KFCV_step(groups,system,data,m_k,
                              regularization=scaled_regularization,
                              **p)
   return L2_list
@@ -173,9 +181,11 @@ def LOOCV_step(*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
-  m_o = p.pop('m_o')
-  weight = p.pop('weight')
+  m_k = p.pop('m_k')
+  weight = p.pop('data_weight')
   p.pop('data_indices')
+  p.pop('prior_weight')
+  p.pop('prior')
 
   residual = np.zeros(len(data))
   # loop over data indices to leave out
@@ -187,7 +197,7 @@ def LOOCV_step(*args,**kwargs):
     # predicted model parameters with excluded data
     m_pred = nonlin_lstsq(system,
                           data,
-                          m_o,
+                          m_k,
                           data_indices=data_indices,
                           **p)
     # predicted data
@@ -206,14 +216,16 @@ def GCV_step(*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
-  m_o = p.pop('m_o')
-  weight = p.pop('weight')
+  m_k = p.pop('m_k')
+  weight = p.pop('data_weight')
   p.pop('data_indices')
+  p.pop('prior_weight')
+  p.pop('prior')
 
   # predicted model parameters with provided penalty parameter
   m_pred = nonlin_lstsq(system,
                         data,
-                        m_o,
+                        m_k,
                         **p)
   # predicted data
   data_pred = system(m_pred,
@@ -246,9 +258,11 @@ def KFCV_step(groups,*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
-  m_o = p.pop('m_o')
-  weight = p.pop('weight')
+  m_k = p.pop('m_k')
+  weight = p.pop('data_weight')
   p.pop('data_indices')
+  p.pop('prior_weight')
+  p.pop('prior')
 
   residual = np.zeros(len(data))
   for indices in groups:
@@ -256,7 +270,7 @@ def KFCV_step(groups,*args,**kwargs):
     data_indices = [i for i in range(len(data)) if not i in indices]
     m_pred = nonlin_lstsq(system,
                           data,
-                          m_o,
+                          m_k,
                           data_indices=data_indices,
                           **p)
 
