@@ -15,6 +15,7 @@ def Lcurve(penalty_range,*args,**kwargs):
   p = _arg_parser(args,kwargs)
   system = p.pop('system')
   data = p.pop('data')
+  weight = p.pop('weight')
   m_o = p.pop('m_o')
 
   penalty_range = np.asarray(penalty_range)
@@ -33,7 +34,7 @@ def Lcurve(penalty_range,*args,**kwargs):
                        *p['system_args'],
                        **p['system_kwargs'])
 
-    res = (data_pred - data)/p['sigma']
+    res = weight.dot(data_pred - data)
     Lm = regularization.dot(m_pred)  
     L2res[itr] = res.dot(res)  
     L2Lm[itr] = Lm.dot(Lm)  
@@ -70,6 +71,7 @@ def CV(penalty_range,*args,**kwargs):
   system = p.pop('system')
   data = p.pop('data')
   m_o = p.pop('m_o')
+  p.pop('weight') 
   p.pop('data_indices')
 
   L2_list = np.zeros(len(penalty_range))
@@ -108,6 +110,7 @@ def GCV(penalty_range,*args,**kwargs):
   system = p.pop('system')
   data = p.pop('data')
   m_o = p.pop('m_o')
+  p.pop('weight')
   p.pop('data_indices')
 
   L2_list = np.zeros(len(penalty_range))
@@ -151,6 +154,7 @@ def KFCV(K,penalty_range,*args,**kwargs):
   system = p.pop('system')
   data = p.pop('data')
   m_o = p.pop('m_o')
+  p.pop('weight')
   p.pop('data_indices')
 
   L2_list = np.zeros(len(penalty_range))
@@ -170,6 +174,7 @@ def LOOCV_step(*args,**kwargs):
   system = p.pop('system')
   data = p.pop('data')
   m_o = p.pop('m_o')
+  weight = p.pop('weight')
   p.pop('data_indices')
 
   residual = np.zeros(len(data))
@@ -191,8 +196,9 @@ def LOOCV_step(*args,**kwargs):
                        **p['system_kwargs'])
     # difference between predicted data and the exluded data
     residual[idx] = data_pred[idx] - data[idx]
-    residual[idx] /= p['sigma'][idx] 
+
   # return L2 norm of residuals
+  residual = weight.dot(residual)
   L2 = residual.dot(residual)
   return L2
 
@@ -201,6 +207,7 @@ def GCV_step(*args,**kwargs):
   system = p.pop('system')
   data = p.pop('data')
   m_o = p.pop('m_o')
+  weight = p.pop('weight')
   p.pop('data_indices')
 
   # predicted model parameters with provided penalty parameter
@@ -214,7 +221,8 @@ def GCV_step(*args,**kwargs):
                      **p['system_kwargs'])
   # predicted data, normalized by uncertainty
   residual = (data_pred - data)
-  residual /= p['sigma']
+  residual = weight.dot(residual)
+
   # Jacobian of the last iteration in nonlin_lstsq.  If the system 
   # was linear w.r.t the unknowns then this is the system matrix.
   jac = p['jacobian'](m_pred,
@@ -222,7 +230,7 @@ def GCV_step(*args,**kwargs):
                       **p['jacobian_kwargs'])
 
   # weight the jacobian by the data uncertainty
-  jac = (1.0/p['sigma'])[:,None]*jac
+  jac = weight.dot(jac)
   L = p['regularization']
   # compute the generalized inverse 
   jac_inv = np.linalg.inv(jac.transpose().dot(jac) + 
@@ -239,6 +247,7 @@ def KFCV_step(groups,*args,**kwargs):
   system = p.pop('system')
   data = p.pop('data')
   m_o = p.pop('m_o')
+  weight = p.pop('weight')
   p.pop('data_indices')
 
   residual = np.zeros(len(data))
@@ -255,7 +264,8 @@ def KFCV_step(groups,*args,**kwargs):
                        *p['system_args'],
                        **p['system_kwargs'])
     residual[indices] = data_pred[indices] - data[indices]
-    residual[indices] /= p['sigma'][indices] 
+
+  residual = weight.dot(residual)
   L2 = residual.dot(residual)
   return L2
 

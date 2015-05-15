@@ -6,6 +6,8 @@ from converger import Converger
 from tikhonov import Perturb
 from tikhonov import tikhonov_matrix
 from inverse_misc import funtime
+import scipy.sparse
+
 logger = logging.getLogger(__name__)
 
 ##------------------------------------------------------------------------------
@@ -18,17 +20,23 @@ def jacobian_fd(m_o,
   '''
   Parameters
   ----------
-    system: function where the first argument is a list of model parameters and 
-            the output is a data list
-    m_o: location in model space where the jacobian will be computed. must be a
-         mutable sequence (e.g. np.array or list)
+
+    system: function where the first argument is a list of model
+      parameters and the output is a data list
+
+    m_o: location in model space where the jacobian will be
+      computed. must be a mutable sequence (e.g. np.array or list)
+
     system_args: additional arguments to system
+
     system_kargs: additional key word arguments to system
+
     dm: step size used for the finite difference approximation
 
   Returns
   -------
     J:  jacobian matrix with dimensions: len(data),len(parameters)
+
   ''' 
   if system_args is None:
     system_args = []
@@ -48,9 +56,29 @@ def jacobian_fd(m_o,
   return Jac
 
 ##------------------------------------------------------------------------------
+def covariance_to_weight(C):
+  '''returns the weight matrix, W, which satisfies
+
+       np.linalg.inv(C) = W.transpose().dot(W)                     (1)
+
+     This is done using Cholesky factorization of C to find A such
+     that
+  
+       C = A.dot(A.transpose()).                                   (2)
+
+     W is then just the inverse of A.  The decomposition of C into W
+     is not unique, but since The solution for any least squares 
+     problem depends on C, rather than W, any value of W 'should' do 
+     just fine as long as it satisfies (1).
+  '''
+  A = np.linalg.cholesky(C)
+  W = np.linalg.inv(A)
+  return W
+  
+##------------------------------------------------------------------------------
 def _residual(system,
                data,
-               sigma,
+               weight,
                system_args,
                system_kwargs,
                jacobian,
@@ -59,6 +87,7 @@ def _residual(system,
                reg_matrix,
                lm_matrix,
                data_indices):
+
   '''
   used for nonlin_lstsq
   '''  
@@ -67,7 +96,7 @@ def _residual(system,
     evaluates the function to be minimized for the given model
     '''
     pred = system(model,*system_args,**system_kwargs)
-    res = (pred - data) / sigma
+    res = weight.dot(pred - data)
     res = res[data_indices]
     reg = reg_matrix.dot(model)    
     lm = np.zeros(np.shape(lm_matrix)[0])
@@ -78,7 +107,7 @@ def _residual(system,
     evaluates the jacobian of the objective function at the given model
     '''
     jac = jacobian(model,*jacobian_args,**jacobian_kwargs)
-    jac = jac / sigma[:,np.newaxis]
+    jac = weight.dot(jac)
     jac = jac[data_indices,:]
     return np.vstack((jac,reg_matrix,lm_matrix))
 
@@ -96,7 +125,7 @@ def _arg_parser(args,kwargs):
        'maxitr':50,
        'rtol':1.0e-4,
        'atol':1.0e-4,
-       'sigma':None,
+       'uncertainty':None,
        'system_args':None,
        'system_kwargs':None,
        'jacobian':None,
@@ -125,11 +154,20 @@ def _arg_parser(args,kwargs):
 
   p['m_o'] = np.asarray(p['m_o'])
 
-  # if no uncertainty is given then assume it is ones.
-  if p['sigma'] is None:
-    p['sigma'] = np.ones(len(p['data']))
+  # if no uncertainty is given then assume standard deviation of 1
+  if p['uncertainty'] is None:
+    p['weight'] = np.eye(len(p['data']))
 
-  p['sigma'] = np.asarray(p['sigma'])
+  # if a vector is given then interpret the values as uncorrelated
+  # standard deviations
+  elif len(np.shape(p['uncertainty'])) == 1:
+    sig = np.asarray(p['uncertainty'])
+    p['weight'] = np.diag(1.0/sig)
+
+  # if a matrix is given then interpret it as a covariance matrix
+  elif len(np.shape(p['uncertainty'])) == 2:
+    cov = np.asarray(p['uncertainty'])
+    p['weight'] = covariance_to_weight(cov)
 
   if p['system_args'] is None:
     p['system_args'] = []
@@ -195,63 +233,104 @@ def _arg_parser(args,kwargs):
 
 ##------------------------------------------------------------------------------
 def nonlin_lstsq(*args,**kwargs):
-  '''
-  Newtons method for solving a least squares problem
+  '''Newtons method for solving a least squares problem
 
   PARAMETERS
   ----------
   *args 
   -----
-    system: function where the first argument is a vector of model parameters 
-            and the remaining arguments are system args and system kwargs
+ 
+   system: function where the first argument is a vector of model
+      parameters and the remaining arguments are system args and
+      system kwargs
+
     data: vector of data values (N,)
+
     m_o: vector of model parameter initial guesses.  
-             OR
-         an integer specifying the number of model parameters.  If an integer
-         is provided then the initial guess is a vector of ones (M,)  
+
+                        OR
+
+      an integer specifying the number of model parameters.  If an
+      integer is provided then the initial guess is a vector of ones
+      (M,)
 
   **kwargs 
-  -------
-    system_args: list of arguments to be passed to system following the model
-                 parameters
-    system_kwargs: list of key word arguments to be passed to system following 
-                   the model parameters
-    jacobian: function which computes the jacobian w.r.t the model parameters.
-              the first arguments is a vector of parameters and the remaining 
-              arguments are jacobian_args and jacobian_kwargs
-    jacobian_args: arguments to be passed to the jacobian function 
-    jacobian_kwargs: key word arguments to be passed to the jacobian function 
-    solver: function which solves "G*m = d" for m, where the first two arguments
-            are G and d.  inverse.lstsq, and inverse.nnls are wrappers for 
-            np.linalg.lstsq, and scipy.optimize.nnls and can be used here. Using
-            nnls ensures that the output model parameters are non-negative.
-            inverse.bounded_lstsq can be used to bound the results of m.  The 
-            bounds must be specified as with 'solver_args'. See the
-            documentation for inverse.bounded_lstsq for more details.
-    solver_args: additional arguments for the solver after G and d
-    solver_kwargs: additional key word arguments for the solver 
-    sigma: data uncertainty vector
-    regularization: regularization matrix scaled by the penalty parameter.  This
-                    is a (*,M) array.                              
-                        OR
-                    array of length 2 where the first argument is the tikhonov 
-                    regularization order and the second argument is the penalty
-                    parameter.  The regularization matrix is assembled assuming
-                    that the position of the model parameters in the vector m 
-                    corresponds to their spatial relationship.
+  --------
 
-    LM_damping: flag indicating whether to use the Levenberg Marquart algorithm 
-                which damps step sizes in each iteration but ensures convergence
+    system_args: list of arguments to be passed to system following
+      the model parameters (default None)
+
+    system_kwargs: list of key word arguments to be passed to system
+      following the model parameters (default None)
+
+    jacobian: function which computes the jacobian w.r.t the model
+      parameters. the first arguments is a vector of parameters and
+      the remaining arguments are jacobian_args and jacobian_kwargs
+      (default: inverse.jacobian_fd)
+
+    jacobian_args: arguments to be passed to the jacobian function 
+      (default: None)
+    jacobian_kwargs: key word arguments to be passed to the jacobian
+      function (default: None)
+
+    solver: function which solves "G*m = d" for m, where the first two
+      arguments are G and d.  inverse.lstsq, and inverse.nnls are
+      wrappers for np.linalg.lstsq, and scipy.optimize.nnls and can be
+      used here. Using nnls ensures that the output model parameters
+      are non-negative.  inverse.bounded_lstsq can be used to bound
+      the results of m.  The bounds must be specified using
+      'solver_args'. See the documentation for inverse.bounded_lstsq
+      for more details. (default: inverse.lstsq)
+
+    solver_args: additional arguments for the solver after G and d
+      (default: None)
+
+    solver_kwargs: additional key word arguments for the solver 
+      (default: None)
+
+    uncertainty: Vector of one standard deviation uncertainties for
+      each data value.  This should be used if the data is assumed to
+      be uncorrelated
+
+                        OR
+
+      data covariance matrix.  This can any square array (sparse or
+      dense) as long as it has the 'dot' method (default: np.eye(N))
+
+
+
+    regularization: regularization matrix scaled by the penalty
+      parameter.  This is a (*,M) array.
+
+                        OR
+
+      array of length 2 where the first argument is the tikhonov
+      regularization order and the second argument is the penalty
+      parameter.  The regularization matrix is assembled assuming that
+      the position of the model parameters in the vector m corresponds
+      to their spatial relationship. (default: None)
+
+    LM_damping: flag indicating whether to use the Levenberg Marquart
+      algorithm which damps step sizes in each iteration but ensures
+      convergence (default: True)
+
     LM_param: starting value for the Levenberg Marquart parameter 
-    LM_factor: the levenberg-Marquart parameter is either multiplied or divided
-               by this value depending on whether the algorithm is converging or
-               diverging. 
-    maxitr: number of steps for the inversion
-    rtol: Algorithm stops if relative L2 between successive iterations is below 
-          this value  
+      (default: 1e-4)
+
+    LM_factor: the levenberg-Marquart parameter is either multiplied
+      or divided by this value depending on whether the algorithm is
+      converging or diverging  (default: 2.0)
+
+    maxitr: number of steps for the inversion (default: 50)
+
+    rtol: Algorithm stops if relative L2 between successive iterations
+      is below this value (default: 1e-4)
+
     atol: Algorithm stops if absolute L2 is below this value 
-    data_indices: indices of data that will be used in the inversion. Defaults 
-                  to using all data.
+      (default: 1e-4)
+
+    data_indices: indices of data that will be used in the
+      inversion. (default: range(N))
 
   Returns
   -------
@@ -270,10 +349,10 @@ def nonlin_lstsq(*args,**kwargs):
     In [7]: nonlin_lstsq(system,data,2,system_args=(x,))
     Out[7]: array([ 1.,  2.])
 
-  nonlin_lstsq also handles more difficult systems which can potentially yield
-  undefined values for some values of m.  As long as 'system' evaluated with the
-  initial guess for m produces a finite output, then nonlin_lstsq will converge 
-  to a solution.
+  nonlin_lstsq also handles more difficult systems which can
+  potentially yield undefined values for some values of m.  As long as
+  'system' evaluated with the initial guess for m produces a finite
+  output, then nonlin_lstsq will converge to a solution.
 
     In [8]: def system(m,x):
         return m[0]*np.log(m[1]*(x+1.0))
@@ -283,17 +362,18 @@ def nonlin_lstsq(*args,**kwargs):
     In [10]: nonlin_lstsq(system,data,[10.0,10.0],system_args=(x,))
     Out[10]: array([ 1.00000011,  1.99999989])
 
-  what separates nonlin_lstsq from other nonlinear solvers is its ability to
-  easily add regularization constraints to illposed problems.  The following 
-  further constrains the problem with a first order tikhonov regularization 
-  matrix scaled by a penalty parameter of 0.001.  The null space in this 
-  case is anywhere that the product of m[0] and m[1] is the same.  The 
-  what seperates nonlin_lstsq from other nonlinear solvers is its ability to
-  easily add regularization constraints to illposed problems.  The following 
-  further constrains the problem with a first order tikhonov regularization 
-  matrix scaled by a penalty parameter of 0.001.  The null space in this 
-  case is anywhere that the product of m[0] and m[1] is the same.  The 
-  added regularization requires that m[0] = m[1].
+  what separates nonlin_lstsq from other nonlinear solvers is its
+  ability to easily add regularization constraints to illposed
+  problems.  The following further constrains the problem with a first
+  order tikhonov regularization matrix scaled by a penalty parameter
+  of 0.001.  The null space in this case is anywhere that the product
+  of m[0] and m[1] is the same.  The what seperates nonlin_lstsq from
+  other nonlinear solvers is its ability to easily add regularization
+  constraints to illposed problems.  The following further constrains
+  the problem with a first order tikhonov regularization matrix scaled
+  by a penalty parameter of 0.001.  The null space in this case is
+  anywhere that the product of m[0] and m[1] is the same.  The added
+  regularization requires that m[0] = m[1].
  
     In [123]: def system(m,x):
         return m[0]*m[1]*x
@@ -302,11 +382,11 @@ def nonlin_lstsq(*args,**kwargs):
     In [125]: nonlin_lstsq(system2,data,2,system_args=(x,),regularization=(1,0.001))
     Out[157]: array([ 3.16227767,  3.16227767])
 
-  regularization can also be added through the 'solver' argument.  Here, the
-  solution is bounded such that 2.0 = m[0] and 0 <= m[1] <= 100.  These bounds
-  are imposed by making the solver a bounded least squares solver and adding the 
-  two solver args, which are the minimum and maximum values for the model 
-  parameters
+  regularization can also be added through the 'solver' argument.
+  Here, the solution is bounded such that 2.0 = m[0] and 0 <= m[1] <=
+  100.  These bounds are imposed by making the solver a bounded least
+  squares solver and adding the two solver args, which are the minimum
+  and maximum values for the model parameters
 
     In [25]: nonlin_lstsq(system,data,2,system_args=(x,),
                           solver=inverse.bounded_lstsq,
@@ -318,7 +398,7 @@ def nonlin_lstsq(*args,**kwargs):
  
   res_func,res_jac = _residual(p['system'],
                                p['data'],
-                               p['sigma'],
+                               p['weight'],
                                p['system_args'],
                                p['system_kwargs'],
                                p['jacobian'],
