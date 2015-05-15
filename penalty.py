@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 import numpy as np
 import logging
-from nonlin_lstsq import nonlin_lstsq
-from nonlin_lstsq import jacobian_fd
-from nonlin_lstsq import _arg_parser
+from nllstsq import nonlin_lstsq
+from nllstsq import jacobian_fd
+from nllstsq import _arg_parser
 from inverse_misc import divide_list
 logger = logging.getLogger(__name__)
 

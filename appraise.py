@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 import logging
-from nonlin_lstsq import nonlin_lstsq
+from nllstsq import nonlin_lstsq
 from inverse_misc import list_flatten
 logger = logging.getLogger(__name__)
 
