@@ -56,7 +56,6 @@ def jacobian_fd(m_o,
   return Jac
 
 ##------------------------------------------------------------------------------
-@funtime
 def covariance_to_weight(C):
   '''returns the weight matrix, W, which satisfies
 
@@ -126,7 +125,6 @@ def _residual(system,
   return residual_function,residual_jacobian
 
 ##------------------------------------------------------------------------------
-@funtime
 def _arg_parser(args,kwargs):
   '''parses and checks arguments for nonlin_lstsq()'''
   assert len(args) == 3, 'nonlin_lstsq takes exactly 3 positional arguments'
@@ -149,8 +147,8 @@ def _arg_parser(args,kwargs):
        'solver_kwargs':None,
        'data_indices':None,
        'regularization':None,
-       'lm_matrix':None,
-       'dtype':None}
+       'dtype':None,
+       'output':None}
 
   for key,val in kwargs.iteritems():
     assert key in p.keys(), (
@@ -257,8 +255,12 @@ def _arg_parser(args,kwargs):
                                 'than 0.0')
 
     p['lm_matrix'] = p['LM_param']*np.eye(len(p['m_k']))
+
   else:
     p['lm_matrix'] = np.zeros((0,len(p['m_k'])))
+
+  if p['output'] is None:
+    p['output'] = ['solution'] 
 
   return p
 
@@ -372,6 +374,10 @@ def nonlin_lstsq(*args,**kwargs):
     data_indices: indices of data that will be used in the
       inversion. (default: range(N))
 
+    output: list of strings indicating what this function returns. Can
+      be 'solution', 'misfit', 'covariance', 'iterations' (default:
+      ['solution'])
+
   Returns
   -------
     m_new: best fit model parameters
@@ -470,8 +476,10 @@ def nonlin_lstsq(*args,**kwargs):
     status,message = conv(d_new)
     if status == 0:
       logger.info(message)
+
     else:
       logger.debug(message)
+
     if (status == 1) and p['LM_damping']:
       logger.debug('decreasing LM parameter to %s' % p['LM_param'])
       p['lm_matrix'] /= p['LM_factor']
@@ -503,4 +511,23 @@ def nonlin_lstsq(*args,**kwargs):
     d = res_func(p['m_k'])
     d = np.asarray(d,dtype=p['dtype'])
 
-  return p['m_k']
+  output = ()
+  for s in p['output']:
+    if s == 'solution':
+      output += p['m_k'],
+
+    if s == 'covariance':
+      print(J)
+      Jinv = np.linalg.pinv(J)
+      output += Jinv.dot(Jinv.transpose()),
+
+    if s == 'misfit':
+      output += conv.L2,
+
+    if s == 'iterations':
+      output += conv.itr,
+
+  if len(output) == 1:
+    output = output[0]
+
+  return output
