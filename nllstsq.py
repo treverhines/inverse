@@ -375,7 +375,8 @@ def nonlin_lstsq(*args,**kwargs):
       inversion. (default: range(N))
 
     output: list of strings indicating what this function returns. Can
-      be 'solution', 'misfit', 'covariance', 'iterations' (default:
+      be 'solution', 'solution_uncertainty', 'predicted',
+      'predicted_uncertainty', 'misfit', or 'iterations' (default:
       ['solution'])
 
   Returns
@@ -516,10 +517,20 @@ def nonlin_lstsq(*args,**kwargs):
     if s == 'solution':
       output += p['m_k'],
 
-    if s == 'covariance':
-      print(J)
-      Jinv = np.linalg.pinv(J)
-      output += Jinv.dot(Jinv.transpose()),
+    if s == 'solution_uncertainty':
+      output += np.linalg.inv(J.transpose().dot(J)),
+
+    if s == 'predicted':
+      output += p['system'](p['m_k'],
+                            *p['system_args'],
+                            **p['system_kwargs']),
+
+    if s == 'predicted_uncertainty':
+      soln_cov = np.linalg.inv(J.transpose().dot(J))
+      obs_jac = p['jacobian'](p['m_k'],
+                              *p['jacobian_args'],
+                              **p['jacobian_kwargs'])
+      output += obs_jac.dot(soln_cov).dot(obs_jac.transpose()),
 
     if s == 'misfit':
       output += conv.L2,
