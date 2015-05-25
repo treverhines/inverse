@@ -5,122 +5,252 @@ from inverse import jacobian_fd
 from inverse import nonlin_lstsq
 
 class KalmanFilter:
-  '''Uses an Extended Kalman filter to evaluate the state, x, 
-  for each time step
+  def __init__(self,prior,prior_cov,
+               transition,
+               observation,
+               process_covariance,
+               transition_jacobian=None,
+               observation_jacobian=None):
+    '''
+    Parameters
+    ----------
+      
+      prior: mean of the prior estimate of the state variable
 
-  Attributes
-  ----------
+      prior_cov: covariance of the prior estimate of the state variable
 
-    transition: function which takes the state and a 'context'
-      dictionary and returns a prediction of the next state as well as
-      the uncertainty in that prediction. If no uncertainty is 
-      specified then the uncertainty is assumed to be zero.
+      transition: function which takes a posterior state as the first
+        argument and returns the prior state for the next time step.
+        This function is called in the 'predict' method.
 
-    observation: function which takes the state and a 'context'
-      dictionary and returns the predicted observations.
 
-    state: list of states from each iteration
+      observation: function which takes a state variable as the first
+        argument and returns the predicted obserables. This function
+        is called in the 'update' method.
 
-    state_cov: list of state covariances from each iteration
 
-    predicted: list of predicted observations from each iteration
+      process_covariance: function which returns the covariance of the
+        process noise, which is the noise introduced by uncertainty in
+        the transition function. This function is called in the
+        'predict' method.
 
-    predicted_cov: list of predicted covariances from each
-      iteration
-  
-  Methods
-  -------
+      transition_jacobian (optional): function which returns the
+        derivative of the transition function with respect to the
+        state variable evaluated at the provided state variable. This
+        function is called in the 'predict' method. If not specified
+        then a finite difference approximation of the jacobian is
+        used.
 
-    predict: uses the predict function to estimate the state at step k
-      and its uncertainty.  The state is given by:
-  
-        x = f(x,f_args)
+      observation_jacobian (optional): function which returns the
+        derivative of the observation function with respect to the
+        state variable evaluated at the provided state variable. This
+        function is called in the 'update' method. If this is not
+        specified then a finite difference approximation of the
+        jacobian is used.
 
-      and the uncertainty is given by
-       
-        P = F*P*Ft + Q
+    ''' 
+    if transition_jacobian is None:
+      transition_jacobian = jacobian_fd
 
-    update: uses observations z, the observation function, and a
-      nonlinear bayesian least squares algorithm to update x and P.
-      The Bayesian least squares algorithm solves
+    if observation_jacobian is None:
+      observation_jacobian = jacobian_fd
 
-        min(||Wd*h(x) - Wd*z||2 + ||Wp*x_new - Wp*x_prior||2)
+    prior = np.asarray(prior)
+    prior_cov = np.asarray(prior_cov)
 
-      where 
-   
-        Wd.T*Wd = R    and    Wp.T*Wp = P
-
-      and x_new is the new value of x being solved for while x_prior
-      is the current value of x. The new value of x is found by
-      solving
-
-        | Wd*h(x) |   | Wd*z       |
-        |         | = |            |
-        | Wp*x    |   | Wp*x_prior |
-
-      for x with a nonlinear least squares algorithm.
-
-  '''    
-  def __init__(self,prior,prior_cov,transition,observation):
-    self.i = 0
     self.transition = transition
+    self.transition_jacobian = transition_jacobian
     self.observation = observation
-    self.store = [{'prior':prior,
-                   'prior_cov':prior_cov,
-                   'post':None,
-                   'post_cov':None,
-                   'smooth':None,
-                   'smooth_cov':None,
-                   'transition':None,
-                   'predicted':None}]
+    self.observation_jacobian = observation_jacobian
+    self.process_covariance = process_covariance
+    self.new = {'prior':prior,
+                'prior_cov':prior_cov,
+                'post':None,
+                'post_cov':None,
+                'smooth':None,
+                'smooth_cov':None,
+                'transition':None}
+    self.state = []
 
-  def predict(self,*args,**kwargs):
-    def f(*args,**kwargs):
-      return self.transition(*args,**kwargs)[0]
+  def _add_state(self):
+    self.state += [self.new]
+    self.new = {'prior':None,
+                'prior_cov':None,
+                'post':None,
+                'post_cov':None,
+                'smooth':None,
+                'smooth_cov':None,
+                'transition':None}
 
-    n = {}
-    c = self.store[self.i]
+  def get(self,key):
+    '''returns the specified type of state variable for each iteration
+
+    Parameters 
+    ---------- 
+
+      key: can be either 'prior', 'prior_cov', 'post', 'post_cov',
+        'smooth', 'smooth_cov', or 'transition'
+
+    '''
+    return [i[key] for i in self.state]
+
+  def predict(self,
+              transition_args=None,
+              transition_kwargs=None,
+              jacobian_args=None,
+              jacobian_kwargs=None,
+              process_covariance_args=None,
+              process_covariance_kwargs=None):
+    '''estimates the prior state for the next iteration
+
+    Parameters 
+    ---------- 
+
+      transition_args: additional arguments to be passed to the
+        transition function after the state variable 
+
+      transition_kwargs: additional key word arguments for the
+        transition function 
+
+      jacobian_args: additional arguments to be passed to
+        transition_jacobian after the state variable. If
+        transition_jacobian was not specified the the appropriate
+        arguments for the finite difference approximation function are
+        used.
+
+      jacobian_kwargs: additional key word arguments to be passed to the
+        transition_jacobian function
+
+      process_covariance_args: arguments to be passed to
+        process_covariance
+
+      process_covariance_kwargs: key word arguments to be passed to
+        process_covariance
+
+    '''
+    if transition_args is None:
+      transition_args = ()
+
+    if transition_kwargs is None:
+      transition_kwargs = {}
+
+    if jacobian_args is None:
+      if self.transition_jacobian is jacobian_fd:
+        jacobian_args = (self.transition,)
+      else:
+        jacobian_args = ()
+
+    if jacobian_kwargs is None:
+      if self.transition_jacobian is jacobian_fd:
+        jacobian_kwargs = {'system_args':transition_args,
+                           'system_kwargs':transition_kwargs}
+  
+      else:
+        jacobian_kwargs = {}
+
+    if process_covariance_args is None:
+      process_covariance_args = ()
+
+    if process_covariance_kwargs is None:
+      process_covariance_kwargs = {}
+
+    c = self.state[-1]
     assert c['post'] is not None
 
-    F = jacobian_fd(c['post'],f,
-                    system_args=args,
-                    system_kwargs=kwargs)
+    F = self.transition_jacobian(c['post'],
+                                 *jacobian_args,
+                                 **jacobian_kwargs)
 
-    Q = self.transition(c['post'],*args,**kwargs)[1]
+    Q = self.process_covariance(*process_covariance_args,
+                                **process_covariance_kwargs)
+
     c['transition'] = F
-    n['prior'] = F.dot(c['post'])
-    n['prior_cov'] = F.dot(c['post_cov']).dot(F.transpose()) + Q
 
-    self.store += [n]
-    self.i += 1
+    self.new['prior'] = self.transition(c['post'],
+                                        *transition_args,
+                                        **transition_kwargs)
 
-  def update(self,z,R,*args,**kwargs):
-    c = self.store[self.i]
+    self.new['prior_cov'] = F.dot(c['post_cov']).dot(F.transpose()) + Q
+
+  def update(self,z,R,
+             observation_args=None,
+             observation_kwargs=None,
+             jacobian_args=None,
+             jacobian_kwargs=None,
+             solver_kwargs=None):
+    '''uses a nonlinear Bayesian least squares algorithm with the given
+    observables to update the prior for the current state
+
+    Parameters
+    ----------
+      z: vector of observables
+  
+      R: covariance of observables
+  
+      observation_args: additional arguments to be passed to the
+        observation function after the state variable
+
+      observation_kwargs: additional key word arguments to be passed
+        to the observation function after the state variable
+
+      jacobian_args: additional arguments to be passed to
+        observation_jacobian after the state variable. If
+        observation_jacobian was not specified the the appropriate
+        arguments for the finite difference approximation function are
+        used.
+
+      jacobian_kwargs: additional key word arguments to be passed to the
+        observation_jacobian function
+    
+    '''
+
+    if observation_args is None:
+      observation_args = ()
+
+    if observation_kwargs is None:
+      observation_kwargs = {}
+
+    if solver_kwargs is None:
+      solver_kwargs = {}
+
+    if jacobian_args is None:
+      if self.observation_jacobian is jacobian_fd:
+        jacobian_args = (self.observation,)
+      else:
+        jacobian_args = ()
+
+    if jacobian_kwargs is None:
+      if self.observation_jacobian is jacobian_fd:
+        jacobian_kwargs ={'system_args':observation_args,
+                          'system_kwargs':observation_kwargs}
+
+      else:
+        jacobian_kwargs = {}
+
     out = nonlin_lstsq(self.observation,
-                       z,c['prior'],
-                       system_args=args,
-                       system_kwargs=kwargs,
+                       z,self.new['prior'],
+                       system_args=observation_args,
+                       system_kwargs=observation_kwargs,
+                       jacobian=self.observation_jacobian,
+                       jacobian_args=jacobian_args,
+                       jacobian_kwargs=jacobian_kwargs,             
                        data_uncertainty = R,
-                       prior_uncertainty = c['prior_cov'],
+                       prior_uncertainty = self.new['prior_cov'],
                        LM_damping=False,
-                       output=['solution',
-                               'solution_uncertainty',
-                               'predicted'])
-    c['post'] = out[0]
-    c['post_cov'] = out[1]
-    c['predicted'] = out[2]
+                       output=['solution','solution_uncertainty'])
+    self.new['post'] = out[0]
+    self.new['post_cov'] = out[1]
+    self._add_state()               
 
   def smooth(self):
-    n = self.i
-    clast = self.store[n]
+    N = len(self.state)
+    clast = self.state[-1]
     clast['smooth'] = clast['post']
     clast['smooth_cov'] = clast['post_cov']
-    print(clast)
     #self.state_smooth_cov[-1] = self.state_post_cov[-1]
-    for n in range(self.i)[::-1]:
-      print(n)
-      cnext = self.store[n+1]
-      ccurr = self.store[n]
+    for n in range(N-1)[::-1]:
+      cnext = self.state[n+1]
+      ccurr = self.state[n]
       C = ccurr['post_cov'].dot(
           ccurr['transition'].transpose()).dot(
           np.linalg.inv(cnext['prior_cov']))

@@ -43,13 +43,15 @@ def jacobian_fd(m_o,
   if system_kwargs is None:
     system_kwargs = {}
 
-  data_o         = system(m_o,*system_args,**system_kwargs)
-  param_no       = len(m_o)
-  data_no        = len(data_o)
-  Jac            = np.zeros((data_no,param_no),dtype=dtype)
+  data_o = system(m_o,*system_args,**system_kwargs)
+  data_o = np.asarray(data_o)
+  param_no = len(m_o)
+  data_no = len(data_o)
+  Jac = np.zeros((data_no,param_no),dtype=dtype)
   i = 0
   for m_pert in Perturb(m_o,dm):
     data_pert = system(m_pert,*system_args,**system_kwargs)
+    data_pert = np.asarray(data_pert)
     Jac[:,i]  = (data_pert - data_o)/dm
     i += 1
 
