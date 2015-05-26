@@ -12,9 +12,7 @@ def _remove_zero_rows(M):
   '''
   used in tikhonov_matrix
   '''
-  keep_idx, = np.nonzero([np.any(i) for i in M])
-  out = M[keep_idx,:]
-  return out 
+  return np.array(filter(np.any,M))
 
 ##------------------------------------------------------------------------------
 def _linear_to_array_index(val,shape):
