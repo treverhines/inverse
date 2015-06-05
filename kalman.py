@@ -267,7 +267,7 @@ class KalmanFilter:
 
     self.new['posterior'] = out[0]
     self.new['posterior_covariance'] = out[1]
-    '''
+
     J = self.observation_jacobian(self.new['posterior'],*jacobian_args)
     Jt = J.transpose()
     P = self.new['prior_covariance']
@@ -279,7 +279,7 @@ class KalmanFilter:
     print(np.linalg.cond(Post))
     print(np.linalg.cond(self.new['posterior_covariance']))
     print(np.all(np.isclose(Post,self.new['posterior_covariance'],rtol=1e-3,atol=1e-3)))
-    '''
+
     self._add_state()               
 
   @funtime

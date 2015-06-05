@@ -144,7 +144,11 @@ def _arg_parser(args,kwargs):
        'rtol':1.0e-4,
        'atol':1.0e-4,
        'data_uncertainty':None,
+       'data_covariance':None,
+       'data_weight':None,
        'prior_uncertainty':None,
+       'prior_covariance':None,
+       'prior_weight':None,
        'system_args':None,
        'system_kwargs':None,
        'jacobian':None,
@@ -174,36 +178,79 @@ def _arg_parser(args,kwargs):
   p['m_k'] = np.asarray(p['m_k'])
   p['prior'] = np.copy(p['m_k'])
 
-  # if no uncertainty is given then assume standard deviation of 1
-  if p['data_uncertainty'] is None:
-    p['data_weight'] = np.eye(len(p['data']))
+  # assert that only one type of prior uncertainty is given      
+  assert np.sum([p['prior_uncertainty'] is not None,
+                 p['prior_covariance'] is not None,
+                 p['prior_weight'] is not None]) <= 1, (
+  'Multiple types of prior uncertainty were specified')    
 
-  # if a vector is given then interpret the values as uncorrelated
-  # standard deviations
-  elif len(np.shape(p['data_uncertainty'])) == 1:
-    sig = np.asarray(p['data_uncertainty'])
-    p['data_weight'] = np.diag(1.0/sig)
+  assert np.sum([p['data_uncertainty'] is not None,
+                 p['data_covariance'] is not None,
+                 p['data_weight'] is not None]) <= 1, (
+  'Multiple types of data uncertainty were specified')    
 
-  # if a matrix is given then interpret it as a covariance matrix
-  elif len(np.shape(p['data_uncertainty'])) == 2:
-    cov = np.asarray(p['data_uncertainty'])
+  # use whatever form of data uncertainty was provided to form the 
+  # data weight matrix
+  if p['data_weight'] is not None:
+    p['data_weight'] = np.asarray(p['data_weight'])
+
+  elif p['data_uncertainty'] is not None:
+    if len(np.shape(p['data_uncertainty'])) == 1:
+      sig = np.asarray(p['data_uncertainty'])
+      p['data_weight'] = np.diag(1.0/sig)
+
+    elif len(np.shape(p['data_uncertainty'])) == 2:
+      cov = np.asarray(p['data_uncertainty'])
+      p['data_weight'] = covariance_to_weight(cov)
+      logger.warning(
+        'use the data_covariance kwarg to specify covariance')
+
+    else:
+      raise ValueError(
+        'data uncertainty must be 1 or 2 dimensional array')
+
+  elif p['data_covariance'] is not None:
+    cov = np.asarray(p['data_covariance'])
     p['data_weight'] = covariance_to_weight(cov)
 
-  # if no prior uncertainty is given, then the prior has no influence
-  # on the final solution 
-  if p['prior_uncertainty'] is None:
-    p['prior_weight'] = np.zeros((0,len(p['m_k'])))
+  else:
+    # if not data uncertainty was provided then weigh data with 
+    # an identity matrix
+    p['data_weight'] = np.eye(len(p['data']))
 
-  # if a vector is given then interpret the values as uncorrelated
-  # standard deviations
-  elif len(np.shape(p['prior_uncertainty'])) == 1:
-    sig = np.asarray(p['prior_uncertainty'])
-    p['prior_weight'] = np.diag(1.0/sig)
+  assert np.sum([p['prior_uncertainty'] is not None,
+                 p['prior_covariance'] is not None,
+                 p['prior_weight'] is not None]) <= 1, (
+  'Multiple types of data uncertainty were specified')    
 
-  # if a matrix is given then interpret it as a covariance matrix
-  elif len(np.shape(p['prior_uncertainty'])) == 2:
-    cov = np.asarray(p['prior_uncertainty'])
+  # use whatever form of prior uncertainty was provided to form 
+  # the prior weight matrix
+  if p['prior_weight'] is not None:
+    p['prior_weight'] = np.asarray(p['prior_weight'])
+
+  elif p['prior_uncertainty'] is not None:
+    if len(np.shape(p['prior_uncertainty'])) == 1:
+      sig = np.asarray(p['prior_uncertainty'])
+      p['prior_weight'] = np.diag(1.0/sig)
+
+    elif len(np.shape(p['prior_uncertainty'])) == 2:
+      cov = np.asarray(p['prior_uncertainty'])
+      p['prior_weight'] = covariance_to_weight(cov)
+      logger.warning(
+        'use the prior_covariance kwarg to specify covariance')
+
+    else:
+      raise ValueError(
+        'data uncertainty must be 1 or 2 dimensional array')
+
+  elif p['prior_covariance'] is not None:
+    cov = np.asarray(p['prior_covariance'])
     p['prior_weight'] = covariance_to_weight(cov)
+
+  else:
+    # if no prior uncertainty is given, then the prior has no influence
+    # on the final solution 
+    p['prior_weight'] = np.zeros((0,len(p['m_k'])))
 
   if p['system_args'] is None:
     p['system_args'] = []
@@ -527,6 +574,9 @@ def nonlin_lstsq(*args,**kwargs):
 
     if s == 'solution_uncertainty':
       output += np.linalg.inv(J.transpose().dot(J)),
+
+    if s == 'jacobian':
+      output += J,
 
     if s == 'predicted':
       output += p['system'](p['m_k'],
