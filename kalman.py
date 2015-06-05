@@ -180,6 +180,7 @@ class KalmanFilter:
     Q = self.process_covariance(*process_covariance_args,
                                 **process_covariance_kwargs)
 
+    c['transition'] = F
 
     self.new['prior'] = self.transition(c['posterior'],
                                         *transition_args,
