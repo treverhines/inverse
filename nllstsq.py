@@ -5,12 +5,13 @@ import solvers
 from converger import Converger
 from tikhonov import Perturb
 from tikhonov import tikhonov_matrix
-from inverse_misc import funtime
+from misc import funtime
 import scipy.sparse
 
 logger = logging.getLogger(__name__)
 
 ##------------------------------------------------------------------------------
+@funtime
 def jacobian_fd(m_o,
                 system,
                 system_args=None,
@@ -58,6 +59,7 @@ def jacobian_fd(m_o,
   return Jac
 
 ##------------------------------------------------------------------------------
+@funtime
 def covariance_to_weight(C):
   '''returns the weight matrix, W, which satisfies
 
@@ -103,6 +105,7 @@ def _residual(system,
   '''
   used for nonlin_lstsq
   '''  
+  @funtime
   def residual_function(model):
     '''
     evaluates the function to be minimized for the given model
@@ -115,6 +118,7 @@ def _residual(system,
     bayes = prior_weight.dot(model - prior)
     return np.hstack((res,reg,lm,bayes))
 
+  @funtime
   def residual_jacobian(model):
     '''
     evaluates the jacobian of the objective function at the given model
@@ -127,6 +131,7 @@ def _residual(system,
   return residual_function,residual_jacobian
 
 ##------------------------------------------------------------------------------
+@funtime
 def _arg_parser(args,kwargs):
   '''parses and checks arguments for nonlin_lstsq()'''
   assert len(args) == 3, 'nonlin_lstsq takes exactly 3 positional arguments'
@@ -267,6 +272,7 @@ def _arg_parser(args,kwargs):
   return p
 
 ##------------------------------------------------------------------------------
+@funtime
 def nonlin_lstsq(*args,**kwargs):
   '''Newtons method for solving a least squares problem
 

@@ -2,7 +2,7 @@
 import numpy as np
 import logging
 from nllstsq import nonlin_lstsq
-from inverse_misc import list_flatten
+from misc import list_flatten
 logger = logging.getLogger(__name__)
 
 ##------------------------------------------------------------------------------

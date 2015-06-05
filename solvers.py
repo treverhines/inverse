@@ -10,7 +10,7 @@ import scipy.linalg
 import pymls
 from converger import Converger
 import logging
-from inverse_misc import funtime
+from misc import funtime
 logger = logging.getLogger(__name__)
 
 def _arg_checker(fin):
@@ -93,6 +93,7 @@ def bounded_lstsq(G,d,lower_lim,upper_lim):
   out = np.squeeze(out)
   return out
 
+
 @funtime
 @_arg_checker
 def cgls(G,d,m_o=None,maxitr=2000,rtol=1e-16,atol=1e-16):
@@ -143,7 +144,7 @@ def cg(G,d,*args,**kwargs):
   '''
   GtG = G.transpose().dot(G)
   Gtd = G.transpose().dot(d)
-  return scipy.sparse.linalg.cg(GtG,Gtd,tol=1e-16,*args,**kwargs)[0]
+  return scipy.sparse.linalg.cg(GtG,Gtd,*args,**kwargs)[0]
 
 
 class _Cg(object):

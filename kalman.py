@@ -3,6 +3,8 @@ from __future__ import division
 import numpy as np
 from inverse import jacobian_fd
 from inverse import nonlin_lstsq
+import logging
+from misc import funtime
 
 class KalmanFilter:
   def __init__(self,prior,prior_cov,
@@ -48,6 +50,15 @@ class KalmanFilter:
         specified then a finite difference approximation of the
         jacobian is used.
 
+    Methods
+    -------
+  
+      get: retreive specified state variable
+
+      predict: estimate prior for next time step
+
+      update: compute posterior for current time step
+
     ''' 
     if transition_jacobian is None:
       transition_jacobian = jacobian_fd
@@ -64,36 +75,40 @@ class KalmanFilter:
     self.observation_jacobian = observation_jacobian
     self.process_covariance = process_covariance
     self.new = {'prior':prior,
-                'prior_cov':prior_cov,
-                'post':None,
-                'post_cov':None,
+                'prior_covariance':prior_cov,
+                'posterior':None,
+                'posterior_covariance':None,
                 'smooth':None,
-                'smooth_cov':None,
+                'smooth_covariance':None,
                 'transition':None}
     self.state = []
+
 
   def _add_state(self):
     self.state += [self.new]
     self.new = {'prior':None,
-                'prior_cov':None,
-                'post':None,
-                'post_cov':None,
+                'prior_covariance':None,
+                'posterior':None,
+                'posterior_covariance':None,
                 'smooth':None,
-                'smooth_cov':None,
+                'smooth_covariance':None,
                 'transition':None}
 
   def get(self,key):
-    '''returns the specified type of state variable for each iteration
+    '''
+    returns the specified type of state variable for each iteration
 
     Parameters 
     ---------- 
 
-      key: can be either 'prior', 'prior_cov', 'post', 'post_cov',
-        'smooth', 'smooth_cov', or 'transition'
+      key: can be either 'prior', 'prior_covariance', 'posterior', 'posterior_covariance',
+        'smooth', 'smooth_covariance', or 'transition'
 
     '''
     return [i[key] for i in self.state]
 
+
+  @funtime
   def predict(self,
               transition_args=None,
               transition_kwargs=None,
@@ -101,7 +116,8 @@ class KalmanFilter:
               jacobian_kwargs=None,
               process_covariance_args=None,
               process_covariance_kwargs=None):
-    '''estimates the prior state for the next iteration
+    '''
+    estimates the prior state for the next iteration
 
     Parameters 
     ---------- 
@@ -155,34 +171,41 @@ class KalmanFilter:
       process_covariance_kwargs = {}
 
     c = self.state[-1]
-    assert c['post'] is not None
+    assert c['posterior'] is not None
 
-    F = self.transition_jacobian(c['post'],
+    F = self.transition_jacobian(c['posterior'],
                                  *jacobian_args,
                                  **jacobian_kwargs)
 
     Q = self.process_covariance(*process_covariance_args,
                                 **process_covariance_kwargs)
 
-    c['transition'] = F
 
-    self.new['prior'] = self.transition(c['post'],
+    self.new['prior'] = self.transition(c['posterior'],
                                         *transition_args,
                                         **transition_kwargs)
 
-    self.new['prior_cov'] = F.dot(c['post_cov']).dot(F.transpose()) + Q
+    self.new['prior_covariance'] = F.dot(
+                                   c['posterior_covariance']).dot(
+                                   F.transpose()) + Q
 
+
+
+
+  @funtime
   def update(self,z,R,
              observation_args=None,
              observation_kwargs=None,
              jacobian_args=None,
              jacobian_kwargs=None,
              solver_kwargs=None):
-    '''uses a nonlinear Bayesian least squares algorithm with the given
+    '''
+    uses a nonlinear Bayesian least squares algorithm with the given
     observables to update the prior for the current state
 
     Parameters
     ----------
+
       z: vector of observables
   
       R: covariance of observables
@@ -202,8 +225,10 @@ class KalmanFilter:
       jacobian_kwargs: additional key word arguments to be passed to the
         observation_jacobian function
     
-    '''
+      solver_kwargs: additional key word arguments to be passed to
+        inverse.nonlin_lstsq.
 
+    '''
     if observation_args is None:
       observation_args = ()
 
@@ -235,34 +260,54 @@ class KalmanFilter:
                        jacobian_args=jacobian_args,
                        jacobian_kwargs=jacobian_kwargs,             
                        data_uncertainty = R,
-                       prior_uncertainty = self.new['prior_cov'],
-                       LM_damping=False,
-                       output=['solution','solution_uncertainty'])
-    self.new['post'] = out[0]
-    self.new['post_cov'] = out[1]
+                       prior_uncertainty = self.new['prior_covariance'],
+                       output=['solution','solution_uncertainty'],
+                       **solver_kwargs)
+
+    self.new['posterior'] = out[0]
+    self.new['posterior_covariance'] = out[1]
+    '''
+    J = self.observation_jacobian(self.new['posterior'],*jacobian_args)
+    Jt = J.transpose()
+    P = self.new['prior_covariance']
+    K1 = P.dot(Jt)
+    K2 = J.dot(P).dot(Jt)
+    K3 = np.linalg.inv(K2 + R)
+    K = K1.dot(K3)
+    Post = (np.eye(len(self.new['prior'])) - K.dot(J)).dot(P)
+    print(np.linalg.cond(Post))
+    print(np.linalg.cond(self.new['posterior_covariance']))
+    print(np.all(np.isclose(Post,self.new['posterior_covariance'],rtol=1e-3,atol=1e-3)))
+    '''
     self._add_state()               
 
+  @funtime
   def smooth(self):
+    '''
+    Smoothes the state variables using the Rauch-Tung-Striebel
+    algorithm. This algorithm is intended for linear systems and may
+    produce undesirable results if the forward problem is highly
+    nonlinear
+    '''
     N = len(self.state)
     clast = self.state[-1]
-    clast['smooth'] = clast['post']
-    clast['smooth_cov'] = clast['post_cov']
-    #self.state_smooth_cov[-1] = self.state_post_cov[-1]
+    clast['smooth'] = clast['posterior']
+    clast['smooth_covariance'] = clast['posterior_covariance']
     for n in range(N-1)[::-1]:
       cnext = self.state[n+1]
       ccurr = self.state[n]
-      C = ccurr['post_cov'].dot(
+      C = ccurr['posterior_covariance'].dot(
           ccurr['transition'].transpose()).dot(
-          np.linalg.inv(cnext['prior_cov']))
+          np.linalg.inv(cnext['prior_covariance']))
 
-      ccurr['smooth'] = (ccurr['post'] + 
+      ccurr['smooth'] = (ccurr['posterior'] + 
                          C.dot( 
                          cnext['smooth'] -  
                          cnext['prior']))
-      ccurr['smooth_cov'] = (ccurr['post_cov'] + 
+      ccurr['smooth_covariance'] = (ccurr['posterior_covariance'] + 
                              C.dot(
-                             cnext['smooth_cov'] - 
-                             cnext['prior_cov']).dot(
+                             cnext['smooth_covariance'] - 
+                             cnext['prior_covariance']).dot(
                              C.transpose()))
 
     

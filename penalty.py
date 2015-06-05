@@ -4,7 +4,7 @@ import logging
 from nllstsq import nonlin_lstsq
 from nllstsq import jacobian_fd
 from nllstsq import _arg_parser
-from inverse_misc import divide_list
+from misc import divide_list
 logger = logging.getLogger(__name__)
 
 

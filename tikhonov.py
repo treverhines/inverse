@@ -2,8 +2,8 @@
 import copy
 import numpy as np
 import logging
-from inverse_misc import funtime
-from inverse_misc import list_flatten
+from misc import funtime
+from misc import list_flatten
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,7 @@ def _tikhonov_second_order(C,L):
 
 ## Tikhonov matrix
 ##------------------------------------------------------------------------------
+@funtime
 def tikhonov_matrix(C,n,column_no=None,dtype=None):
   '''
   Parameters
