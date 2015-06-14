@@ -3,8 +3,120 @@ from __future__ import division
 import numpy as np
 from inverse import jacobian_fd
 from inverse import nonlin_lstsq
+from inverse import Converger
 import logging
 from misc import funtime
+import scipy.linalg
+
+logger = logging.getLogger(__name__)
+
+@funtime
+def iekf_update(system,
+                jacobian,
+                data,
+                prior,
+                Cdata,
+                Cprior,
+                system_args=None,
+                system_kwargs=None,
+                jacobian_args=None,
+                jacobian_kwargs=None,
+                regularization=None,
+                rtol=1e-6,
+                atol=1e-6,
+                maxitr=10):
+  '''
+  Update function for Iterated Extended Kalman Filter
+
+  This algorithm comes from [1] and also allows for regularization by
+  appropriately augmenting the observation function, observation
+  Jacobian, and data.
+ 
+  Note
+  ----
+  
+    The algorithm terminates based on the absolute value or the
+    relative value of the residual L2 norm, which does not account for
+    the data uncertainty.  This should not have any appreciable impact
+    on the solution
+  
+  References
+  ----------
+  
+    [1] Gibbs, P. B., "Advanced Kalman Filtering, Least-Squares and
+          Modeling: A Practical Handbook". 2011, John Wiley & Sons, Inc
+
+  '''
+  if system_args is None:
+    system_args = ()
+
+  if system_kwargs is None:
+    system_kwargs = {}
+
+  if jacobian_args is None:
+    jacobian_args = ()
+
+  if jacobian_kwargs is None:
+    jacobian_kwargs = {}
+
+  if regularization is None:
+    regularization = np.zeros((0,len(prior)))
+
+  conv = Converger(atol,rtol,maxitr)
+  eta = np.copy(prior)
+  reg = np.asarray(regularization)
+  prior = np.asarray(prior)
+  data = np.asarray(data)
+
+  H = jacobian(eta,
+               *jacobian_args,
+               **jacobian_kwargs)
+  # augment jacobian
+  H = np.vstack((H,reg))
+  pred = system(eta,
+                *system_args,
+                **system_kwargs)
+  res = data - pred
+  # augment residual 
+  res = np.hstack((res,-reg.dot(eta)))
+
+  # augment data covariance
+  Cdata = scipy.linalg.block_diag(Cdata,np.eye(len(reg)))
+
+  status,message = conv.check(res)
+  if status == 0:
+    logger.info('initial guess' + message)
+
+  else:
+    logger.debug('initial guess' + message)
+
+  while not (status == 0) | (status == 3):
+    K = Cprior.dot(H.transpose()).dot(
+          np.linalg.inv(
+            H.dot(Cprior).dot(H.transpose()) + Cdata))
+    eta = prior + K.dot(res - H.dot(prior - eta))
+    H = jacobian(eta,
+                 *jacobian_args,
+                 **jacobian_kwargs)
+    H = np.vstack((H,reg))
+    pred = system(eta,
+                  *system_args,
+                  **system_kwargs)
+    res = data - pred
+    res = np.hstack((res,-reg.dot(eta)))
+
+    status,message = conv.check(res)
+    if status == 0:
+      logger.info(message)
+
+    else:
+      logger.debug(message)
+
+    conv.set(res)
+
+  Ceta = (np.eye(len(eta)) - K.dot(H)).dot(Cprior)
+  return eta,Ceta
+
 
 class KalmanFilter:
   def __init__(self,prior,prior_cov,
@@ -93,6 +205,7 @@ class KalmanFilter:
                 'smooth':None,
                 'smooth_covariance':None,
                 'transition':None}
+
 
   def get(self,key):
     '''
@@ -190,9 +303,6 @@ class KalmanFilter:
                                    c['posterior_covariance']).dot(
                                    F.transpose()) + Q
 
-
-
-
   @funtime
   def update(self,z,R,
              observation_args=None,
@@ -253,32 +363,35 @@ class KalmanFilter:
       else:
         jacobian_kwargs = {}
 
-    out = nonlin_lstsq(self.observation,
-                       z,self.new['prior'],
-                       system_args=observation_args,
-                       system_kwargs=observation_kwargs,
-                       jacobian=self.observation_jacobian,
-                       jacobian_args=jacobian_args,
-                       jacobian_kwargs=jacobian_kwargs,             
-                       data_uncertainty = R,
-                       prior_uncertainty = self.new['prior_covariance'],
-                       output=['solution','solution_uncertainty'],
-                       **solver_kwargs)
+    #out = nonlin_lstsq(self.observation,
+    #                   z,self.new['prior'],
+    #                   system_args=observation_args,
+    #                   system_kwargs=observation_kwargs,
+    #                   jacobian=self.observation_jacobian,
+    #                   jacobian_args=jacobian_args,
+    #                   jacobian_kwargs=jacobian_kwargs,             
+    #                   data_covariance = R,
+    #                   prior_covariance = self.new['prior_covariance'],
+    #                   output=['solution','solution_uncertainty'],
+    #                   **solver_kwargs)
+    #self.new['posterior'] = out[0]
+    #self.new['posterior_covariance'] = out[1]
+    
+    # use a single iteration of Extended Kalman Filter
+    out = iekf_update(self.observation,
+                self.observation_jacobian,
+                z,
+                self.new['prior'],
+                R,
+                self.new['prior_covariance'],
+                system_args=observation_args,
+                system_kwargs=observation_kwargs,
+                jacobian_args=jacobian_args,
+                jacobian_kwargs=jacobian_kwargs,
+                **solver_kwargs)
 
     self.new['posterior'] = out[0]
     self.new['posterior_covariance'] = out[1]
-
-    J = self.observation_jacobian(self.new['posterior'],*jacobian_args)
-    Jt = J.transpose()
-    P = self.new['prior_covariance']
-    K1 = P.dot(Jt)
-    K2 = J.dot(P).dot(Jt)
-    K3 = np.linalg.inv(K2 + R)
-    K = K1.dot(K3)
-    Post = (np.eye(len(self.new['prior'])) - K.dot(J)).dot(P)
-    print(np.linalg.cond(Post))
-    print(np.linalg.cond(self.new['posterior_covariance']))
-    print(np.all(np.isclose(Post,self.new['posterior_covariance'],rtol=1e-3,atol=1e-3)))
 
     self._add_state()               
 

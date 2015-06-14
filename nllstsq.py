@@ -509,8 +509,8 @@ def nonlin_lstsq(*args,**kwargs):
 
   final = np.zeros(len(res_func(p['m_k'])))
 
-  conv = Converger(final,atol=p['atol'],rtol=p['rtol'],maxitr=p['maxitr'])
-  status = None
+  #conv = Converger(final,atol=p['atol'],rtol=p['rtol'],maxitr=p['maxitr'])
+  conv = Converger(atol=p['atol'],rtol=p['rtol'],maxitr=p['maxitr'])
 
   J = res_jac(p['m_k'])
   J = np.asarray(J,dtype=p['dtype'])
@@ -524,12 +524,19 @@ def nonlin_lstsq(*args,**kwargs):
                                   'predicted data vector.  Try using a different '
                                   'initial guess for the model parameters')
 
+  status,message = conv.check(d)
+  if status == 0:
+    logger.info('initial guess ' + message)
+
+  else:
+    logger.debug('initial guess ' + message)
+
   while not ((status == 0) | (status == 3)):
     m_new = p['solver'](J,-d+J.dot(p['m_k']),
                         *p['solver_args'],
                         **p['solver_kwargs'])
     d_new = res_func(m_new)
-    status,message = conv(d_new)
+    status,message = conv.check(d_new)
     if status == 0:
       logger.info(message)
 
@@ -553,7 +560,7 @@ def nonlin_lstsq(*args,**kwargs):
                           *p['solver_args'],
                           **p['solver_kwargs'])
       d_new = res_func(m_new)
-      status,message = conv(d_new)      
+      status,message = conv.check(d_new)
       if status == 0:
         logger.info(message)
       else:
